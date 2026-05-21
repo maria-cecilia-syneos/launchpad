@@ -12,11 +12,19 @@ test("shows registered Source Ledger records on the Sources surface", async ({
   await expect(page.getByText("CARDIOMAX Teams Decisions")).toBeVisible();
   await expect(page.getByText("CARDIOMAX Salesforce Launch Context"))
     .toBeVisible();
+  await expect(page.getByText("CARDIOMAX Tier 2 Launch Playbook"))
+    .toBeVisible();
+  await expect(page.getByText("CARDIOMAX Approved Asset Library"))
+    .toBeVisible();
+  await expect(page.getByText("CARDIOMAX Deployment Handoff")).toBeVisible();
   await expect(page.getByText("Source system: SharePoint").first())
     .toBeVisible();
   await expect(page.getByText("Source system: Teams")).toBeVisible();
   await expect(page.getByText("Source system: ECRM/Salesforce"))
     .toBeVisible();
+  await expect(page.getByText("Source system: Playbook")).toBeVisible();
+  await expect(page.getByText("Source system: Asset")).toBeVisible();
+  await expect(page.getByText("Source system: Handoff artifact")).toBeVisible();
   await expect(page.getByText("Source-link health: Healthy").first())
     .toBeVisible();
   await expect(page.getByText("Freshness: Fresh").first()).toBeVisible();

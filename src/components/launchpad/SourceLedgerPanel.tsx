@@ -43,6 +43,12 @@ import {
   runPrototypeSalesforceIngestion,
   type SalesforceSyncAuditEvent,
 } from "@/domain/salesforce-ingestion";
+import {
+  canIngestLaunchArtifactSource,
+  getLaunchArtifactIngestionResultMessage,
+  runPrototypeLaunchArtifactIngestion,
+  type LaunchArtifactSyncAuditEvent,
+} from "@/domain/launch-artifact-ingestion";
 import type { WorkspaceSession } from "@/domain/workspace";
 
 import { SourceLedgerResult } from "./SourceLedgerResult";
@@ -54,7 +60,8 @@ type SourceLedgerPanelProps = {
       | SourceRegistrationAuditEvent
       | SourceSyncAuditEvent
       | CollaborationSyncAuditEvent
-      | SalesforceSyncAuditEvent,
+      | SalesforceSyncAuditEvent
+      | LaunchArtifactSyncAuditEvent,
   ) => void;
   session: WorkspaceSession;
   viewState?: "ready" | "loading" | "error";
@@ -64,7 +71,8 @@ type SourceLedgerAuditEvent =
   | SourceRegistrationAuditEvent
   | SourceSyncAuditEvent
   | CollaborationSyncAuditEvent
-  | SalesforceSyncAuditEvent;
+  | SalesforceSyncAuditEvent
+  | LaunchArtifactSyncAuditEvent;
 
 type RegistrationFormState = {
   sourceName: string;
@@ -277,7 +285,7 @@ export function SourceLedgerPanel({
   function handleRunIngestion(source: SourceLedgerRecord) {
     if (!canRunSourceIngestion(source)) {
       setStatusMessage(
-        "Only approved, authorized SharePoint, Word, PDF, Teams, email, or Salesforce sources can be ingested.",
+        "Only approved, authorized SharePoint, Word, PDF, Teams, email, Salesforce, or structured launch artifact sources can be ingested.",
       );
       return;
     }
@@ -538,11 +546,25 @@ function canRunSourceIngestion(source: SourceLedgerRecord) {
   return (
     canIngestMicrosoftDocumentSource(source) ||
     canIngestGovernedCollaborationSource(source) ||
-    canIngestSalesforceSource(source)
+    canIngestSalesforceSource(source) ||
+    canIngestLaunchArtifactSource(source)
   );
 }
 
 function runSourceIngestion(source: SourceLedgerRecord, actorId: string) {
+  if (canIngestLaunchArtifactSource(source)) {
+    const result = runPrototypeLaunchArtifactIngestion({
+      actorId,
+      source,
+    });
+
+    return {
+      auditEvent: result.auditEvent,
+      message: getLaunchArtifactIngestionResultMessage(result),
+      updatedSource: result.updatedSource,
+    };
+  }
+
   if (canIngestSalesforceSource(source)) {
     const result = runPrototypeSalesforceIngestion({
       actorId,

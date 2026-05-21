@@ -117,6 +117,17 @@ describe("source ledger domain helpers", () => {
       "Source link or object ID is required.",
       "Source type must match the selected source system.",
     ]);
+
+    expect(
+      validateSourceRegistration({
+        ...validInput,
+        objectId: "",
+        sourceUrl: "https://token@example.com/source?access_token=secret",
+      }),
+    ).toEqual([
+      "Source link must use a safe internal path or HTTPS URL.",
+      "Source link or object ID is required.",
+    ]);
   });
 
   it("creates audit-safe source registration events", () => {

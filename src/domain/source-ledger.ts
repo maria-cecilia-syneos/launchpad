@@ -240,6 +240,10 @@ export function normalizeSourceUrl(sourceUrl?: string) {
   }
 
   if (trimmedUrl.startsWith("/") && !trimmedUrl.startsWith("//")) {
+    if (hasCredentialQueryParams(trimmedUrl)) {
+      return undefined;
+    }
+
     return trimmedUrl;
   }
 
@@ -250,7 +254,12 @@ export function normalizeSourceUrl(sourceUrl?: string) {
   try {
     const parsedUrl = new URL(trimmedUrl);
 
-    if (parsedUrl.protocol === "https:") {
+    if (
+      parsedUrl.protocol === "https:" &&
+      !parsedUrl.username &&
+      !parsedUrl.password &&
+      !hasCredentialQueryParams(parsedUrl.search)
+    ) {
       return trimmedUrl;
     }
   } catch {
@@ -258,6 +267,28 @@ export function normalizeSourceUrl(sourceUrl?: string) {
   }
 
   return undefined;
+}
+
+function hasCredentialQueryParams(urlOrSearch: string) {
+  const queryStart = urlOrSearch.indexOf("?");
+  const search =
+    urlOrSearch.startsWith("?")
+      ? urlOrSearch
+      : queryStart >= 0
+        ? urlOrSearch.slice(queryStart)
+        : "";
+
+  if (!search) {
+    return false;
+  }
+
+  const params = new URLSearchParams(search);
+
+  return [...params.keys()].some((key) =>
+    /access.?token|authorization|bearer|client.?secret|credential|password|secret|session|token/i.test(
+      key,
+    ),
+  );
 }
 
 export function validateSourceRegistration(input: SourceRegistrationInput) {
@@ -420,6 +451,60 @@ export function createPrototypeSourceRecords(): SourceLedgerRecord[] {
       {
         registeredAt: "2026-05-21T12:18:00.000Z",
         sourceId: "src-cardiomax-salesforce-context",
+      },
+    ),
+    buildSourceRegistrationRecord(
+      {
+        accessState: "authorized",
+        approvalState: "approved",
+        freshnessState: "watch",
+        ingestionStatus: "ready",
+        objectId: "playbook-cardiomax-tier-2",
+        owningTeam: "Launch Excellence",
+        sourceName: "CARDIOMAX Tier 2 Launch Playbook",
+        sourceSystem: "playbook",
+        sourceType: "playbook",
+        sourceUrl: "/sources#cardiomax-tier-2-playbook",
+      },
+      {
+        registeredAt: "2026-05-21T12:22:00.000Z",
+        sourceId: "src-cardiomax-tier-2-playbook",
+      },
+    ),
+    buildSourceRegistrationRecord(
+      {
+        accessState: "authorized",
+        approvalState: "approved",
+        freshnessState: "watch",
+        ingestionStatus: "ready",
+        objectId: "assets-cardiomax-approved",
+        owningTeam: "Learning Solutions",
+        sourceName: "CARDIOMAX Approved Asset Library",
+        sourceSystem: "asset",
+        sourceType: "approved_asset",
+        sourceUrl: "/sources#cardiomax-approved-assets",
+      },
+      {
+        registeredAt: "2026-05-21T12:24:00.000Z",
+        sourceId: "src-cardiomax-approved-assets",
+      },
+    ),
+    buildSourceRegistrationRecord(
+      {
+        accessState: "authorized",
+        approvalState: "approved",
+        freshnessState: "watch",
+        ingestionStatus: "ready",
+        objectId: "handoff-cardiomax-deployment",
+        owningTeam: "Deployment Solutions",
+        sourceName: "CARDIOMAX Deployment Handoff",
+        sourceSystem: "handoff",
+        sourceType: "handoff_artifact",
+        sourceUrl: "/sources#cardiomax-deployment-handoff",
+      },
+      {
+        registeredAt: "2026-05-21T12:26:00.000Z",
+        sourceId: "src-cardiomax-deployment-handoff",
       },
     ),
     buildSourceRegistrationRecord(

@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { SourceLedgerPanel } from "./SourceLedgerPanel";
 import type { CollaborationSyncAuditEvent } from "@/domain/collaboration-ingestion";
+import type { LaunchArtifactSyncAuditEvent } from "@/domain/launch-artifact-ingestion";
 import type { SalesforceSyncAuditEvent } from "@/domain/salesforce-ingestion";
 import type { SourceSyncAuditEvent } from "@/domain/source-ingestion";
 import {
@@ -29,7 +30,8 @@ type SourceLedgerAuditEvent =
   | SourceRegistrationAuditEvent
   | SourceSyncAuditEvent
   | CollaborationSyncAuditEvent
-  | SalesforceSyncAuditEvent;
+  | SalesforceSyncAuditEvent
+  | LaunchArtifactSyncAuditEvent;
 
 describe("SourceLedgerPanel", () => {
   it("renders registered sources with provenance and source states", () => {
@@ -796,6 +798,185 @@ describe("SourceLedgerPanel", () => {
         metadata: expect.objectContaining({
           reasonState: "connector_unavailable",
           sourceId: "src-cardiomax-salesforce-connector-failure",
+          syncStatus: "failed",
+        }),
+      }),
+    );
+  });
+
+  it("runs structured Playbook ingestion for eligible launch artifact sources", async () => {
+    const user = userEvent.setup();
+    const onSourceAuditEvent = vi.fn<(event: SourceLedgerAuditEvent) => void>();
+    const playbookSource = buildSourceRegistrationRecord(
+      {
+        accessState: "authorized",
+        approvalState: "approved",
+        freshnessState: "watch",
+        ingestionStatus: "ready",
+        objectId: "playbook-cardiomax-tier-2",
+        owningTeam: "Launch Excellence",
+        sourceName: "CARDIOMAX Tier 2 Launch Playbook",
+        sourceSystem: "playbook",
+        sourceType: "playbook",
+        sourceUrl: "/sources#cardiomax-tier-2-playbook",
+      },
+      {
+        registeredAt: "2026-05-21T15:00:00.000Z",
+        sourceId: "src-cardiomax-tier-2-playbook",
+      },
+    );
+
+    render(
+      <SourceLedgerPanel
+        initialSources={[playbookSource]}
+        onSourceAuditEvent={onSourceAuditEvent}
+        session={adminSession}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", {
+        name: /run ingestion for cardiomax tier 2 launch playbook/i,
+      }),
+    );
+
+    expect(screen.getByRole("status")).toHaveTextContent(
+      /1 playbook template prepared for retrieval/i,
+    );
+    const playbookResult = screen.getByRole("article", {
+      name: /cardiomax tier 2 launch playbook/i,
+    });
+    expect(within(playbookResult).getByText(/freshness: fresh/i)).toBeVisible();
+    expect(within(playbookResult).getByText(/ingestion: complete/i))
+      .toBeVisible();
+    expect(playbookResult).toHaveTextContent(
+      /1 playbook template prepared for retrieval/i,
+    );
+    expect(onSourceAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: "source.sync_completed",
+        metadata: expect.objectContaining({
+          launchId: "launch-cardiomax-2026",
+          recordCounts: expect.objectContaining({
+            playbookTemplates: 1,
+          }),
+          sourceId: "src-cardiomax-tier-2-playbook",
+          sourceSystem: "playbook",
+          syncStatus: "completed",
+        }),
+      }),
+    );
+    expect(document.body).not.toHaveTextContent(/rawConnectorPayload/i);
+    expect(document.body).not.toHaveTextContent(/credentialToken/i);
+  });
+
+  it("shows incomplete structured handoff ingestion without fabricating missing fields", async () => {
+    const user = userEvent.setup();
+    const onSourceAuditEvent = vi.fn<(event: SourceLedgerAuditEvent) => void>();
+    const incompleteHandoffSource = buildSourceRegistrationRecord(
+      {
+        accessState: "authorized",
+        approvalState: "approved",
+        freshnessState: "watch",
+        ingestionStatus: "ready",
+        objectId: "missing-handoff-cardiomax-deployment",
+        owningTeam: "Deployment Solutions",
+        sourceName: "CARDIOMAX incomplete deployment handoff",
+        sourceSystem: "handoff",
+        sourceType: "handoff_artifact",
+      },
+      {
+        registeredAt: "2026-05-21T15:20:00.000Z",
+        sourceId: "src-cardiomax-incomplete-handoff",
+      },
+    );
+
+    render(
+      <SourceLedgerPanel
+        initialSources={[incompleteHandoffSource]}
+        onSourceAuditEvent={onSourceAuditEvent}
+        session={adminSession}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", {
+        name: /run ingestion for cardiomax incomplete deployment handoff/i,
+      }),
+    );
+
+    expect(screen.getByRole("status")).toHaveTextContent(
+      /required artifact information is missing/i,
+    );
+    const handoffResult = screen.getByRole("article", {
+      name: /cardiomax incomplete deployment handoff/i,
+    });
+    expect(within(handoffResult).getByText(/freshness: watch/i)).toBeVisible();
+    expect(within(handoffResult).getByText(/ingestion: incomplete/i))
+      .toBeVisible();
+    expect(onSourceAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: "source.sync_failed",
+        metadata: expect.objectContaining({
+          reasonState: "missing_information",
+          sourceId: "src-cardiomax-incomplete-handoff",
+          sourceSystem: "handoff",
+          syncStatus: "incomplete",
+        }),
+      }),
+    );
+  });
+
+  it("shows a user-safe structured artifact connector failure", async () => {
+    const user = userEvent.setup();
+    const onSourceAuditEvent = vi.fn<(event: SourceLedgerAuditEvent) => void>();
+    const connectorFailureSource = buildSourceRegistrationRecord(
+      {
+        accessState: "authorized",
+        approvalState: "approved",
+        freshnessState: "fresh",
+        ingestionStatus: "ready",
+        objectId: "connector-failure-playbook",
+        owningTeam: "Launch Excellence",
+        sourceName: "CARDIOMAX playbook connector failure source",
+        sourceSystem: "playbook",
+        sourceType: "playbook",
+      },
+      {
+        registeredAt: "2026-05-21T15:30:00.000Z",
+        sourceId: "src-cardiomax-playbook-connector-failure",
+      },
+    );
+
+    render(
+      <SourceLedgerPanel
+        initialSources={[connectorFailureSource]}
+        onSourceAuditEvent={onSourceAuditEvent}
+        session={adminSession}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", {
+        name: /run ingestion for cardiomax playbook connector failure source/i,
+      }),
+    );
+
+    expect(screen.getByRole("status")).toHaveTextContent(
+      /structured launch artifacts could not be retrieved/i,
+    );
+    const failureResult = screen.getByRole("article", {
+      name: /cardiomax playbook connector failure source/i,
+    });
+    expect(within(failureResult).getByText(/freshness: stale/i)).toBeVisible();
+    expect(within(failureResult).getByText(/ingestion: failed/i)).toBeVisible();
+    expect(failureResult).not.toHaveTextContent(/connector stack/i);
+    expect(onSourceAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: "source.sync_failed",
+        metadata: expect.objectContaining({
+          reasonState: "connector_unavailable",
+          sourceId: "src-cardiomax-playbook-connector-failure",
           syncStatus: "failed",
         }),
       }),
