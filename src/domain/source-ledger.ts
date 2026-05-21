@@ -50,6 +50,12 @@ export type SourceIngestionStatus =
   | "stale"
   | "restricted";
 
+export type SourceLinkHealthState =
+  | "healthy"
+  | "missing"
+  | "restricted"
+  | "unverified";
+
 export type SourceRegistrationAction = "created" | "updated";
 
 export type SourceRegistrationInput = {
@@ -62,11 +68,16 @@ export type SourceRegistrationInput = {
   accessState: SourceAccessState;
   ingestionStatus: SourceIngestionStatus;
   objectId?: string;
+  sourceLinkHealth?: SourceLinkHealthState;
   sourceUrl?: string;
 };
 
-export type SourceLedgerRecord = SourceRegistrationInput & {
+export type SourceLedgerRecord = Omit<
+  SourceRegistrationInput,
+  "sourceLinkHealth"
+> & {
   sourceId: string;
+  sourceLinkHealth: SourceLinkHealthState;
   registeredAt: string;
   lastRefreshedAt?: string;
 };
@@ -81,6 +92,7 @@ export type VisibleSourceLedgerRecord = {
   freshnessState: SourceFreshnessState;
   ingestionStatus: SourceIngestionStatus;
   isRedacted: boolean;
+  sourceLinkHealth: SourceLinkHealthState;
   sourceKey: string;
   sourceUrl?: string;
   statusMessage: string;
@@ -158,6 +170,13 @@ export const ingestionStatusLabels: Record<SourceIngestionStatus, string> = {
   restricted: "Restricted",
   stale: "Stale",
   syncing: "Syncing",
+};
+
+export const sourceLinkHealthLabels: Record<SourceLinkHealthState, string> = {
+  healthy: "Healthy",
+  missing: "Missing",
+  restricted: "Restricted",
+  unverified: "Unverified",
 };
 
 export const sourceTypesBySystem: Record<
@@ -274,6 +293,8 @@ export function buildSourceRegistrationRecord(
   input: SourceRegistrationInput,
   options: BuildRecordOptions = {},
 ): SourceLedgerRecord {
+  const normalizedSourceUrl = normalizeSourceUrl(input.sourceUrl);
+
   return {
     accessState: input.accessState,
     approvalState: input.approvalState,
@@ -288,7 +309,13 @@ export function buildSourceRegistrationRecord(
     sourceName: input.sourceName.trim(),
     sourceSystem: input.sourceSystem,
     sourceType: input.sourceType,
-    sourceUrl: normalizeSourceUrl(input.sourceUrl),
+    sourceLinkHealth:
+      input.sourceLinkHealth ??
+      inferSourceLinkHealth({
+        ...input,
+        sourceUrl: normalizedSourceUrl,
+      }),
+    sourceUrl: normalizedSourceUrl,
   };
 }
 
@@ -327,9 +354,9 @@ export function createPrototypeSourceRecords(): SourceLedgerRecord[] {
         accessState: "authorized",
         approvalState: "approved",
         freshnessState: "fresh",
-        ingestionStatus: "complete",
-        objectId: "sharepoint-site-cardiomax",
-        owningTeam: "Launch Operations",
+      ingestionStatus: "complete",
+      objectId: "sharepoint-site-cardiomax",
+      owningTeam: "Launch Operations",
         sourceName: "CARDIOMAX Launch Plan",
         sourceSystem: "sharepoint",
         sourceType: "sharepoint_site",
@@ -382,7 +409,7 @@ export function createPrototypeSourceRecords(): SourceLedgerRecord[] {
         approvalState: "approved",
         freshnessState: "watch",
         ingestionStatus: "ready",
-        objectId: "sf-cardiomax-opportunity",
+        objectId: "006CARDIOMAX",
         owningTeam: "Sales Operations",
         sourceName: "CARDIOMAX Salesforce Launch Context",
         sourceSystem: "ecrm_salesforce",
@@ -435,6 +462,7 @@ export function toVisibleSourceRecord(
       isRedacted,
       sourceKey: `restricted-source-${index}`,
       statusMessage: "Restricted source details are hidden.",
+      sourceLinkHealth: "restricted",
     };
   }
 
@@ -448,6 +476,7 @@ export function toVisibleSourceRecord(
     freshnessState: record.freshnessState,
     ingestionStatus: record.ingestionStatus,
     isRedacted,
+    sourceLinkHealth: record.sourceLinkHealth,
     sourceKey: record.sourceId,
     sourceUrl: record.sourceUrl,
     statusMessage: getSourceStatusMessage(record),
@@ -467,6 +496,27 @@ export function getSourceLocationKey(
   return source.objectId?.trim() || normalizeSourceUrl(source.sourceUrl);
 }
 
+export function hasSameSourceLedgerLocation(
+  left: Pick<
+    SourceLedgerRecord,
+    "objectId" | "sourceSystem" | "sourceType" | "sourceUrl"
+  >,
+  right: Pick<
+    SourceLedgerRecord,
+    "objectId" | "sourceSystem" | "sourceType" | "sourceUrl"
+  >,
+) {
+  const leftLocationKey = getSourceLocationKey(left);
+  const rightLocationKey = getSourceLocationKey(right);
+
+  return (
+    Boolean(leftLocationKey) &&
+    leftLocationKey === rightLocationKey &&
+    left.sourceSystem === right.sourceSystem &&
+    left.sourceType === right.sourceType
+  );
+}
+
 export function isRestrictedSource(record: SourceLedgerRecord) {
   return (
     record.accessState === "restricted" ||
@@ -474,6 +524,23 @@ export function isRestrictedSource(record: SourceLedgerRecord) {
     record.freshnessState === "restricted" ||
     record.ingestionStatus === "restricted"
   );
+}
+
+function inferSourceLinkHealth(
+  source: Pick<
+    SourceRegistrationInput,
+    "accessState" | "approvalState" | "freshnessState" | "sourceUrl"
+  >,
+): SourceLinkHealthState {
+  if (
+    source.accessState === "restricted" ||
+    source.approvalState === "restricted" ||
+    source.freshnessState === "restricted"
+  ) {
+    return "restricted";
+  }
+
+  return source.sourceUrl ? "healthy" : "unverified";
 }
 
 function getSourceStatusMessage(record: SourceLedgerRecord) {

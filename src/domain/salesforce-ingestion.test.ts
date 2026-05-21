@@ -19,7 +19,7 @@ const salesforceSource = buildSourceRegistrationRecord(
     approvalState: "approved",
     freshnessState: "watch",
     ingestionStatus: "ready",
-    objectId: "sf-cardiomax-opportunity",
+    objectId: "006CARDIOMAX",
     owningTeam: "Sales Operations",
     sourceName: "CARDIOMAX Salesforce Launch Context",
     sourceSystem: "ecrm_salesforce",
@@ -118,10 +118,14 @@ describe("salesforce ingestion domain helpers", () => {
     expect(result.launchContextRecords[0]).toMatchObject({
       accountClientLabel: "CARDIOMAX",
       commercialContext: ["Phase 2 expansion is in contracting."],
+      accessState: "authorized",
+      approvalState: "approved",
+      freshnessState: "fresh",
       launchId: "launch-cardiomax-2026",
       opportunityOrEngagementId: "OPP-4242",
+      refreshedAt: "2026-05-21T14:30:00.000Z",
       sourceId: "src-cardiomax-salesforce-context",
-      sourceLocationKey: "sf-cardiomax-opportunity",
+      sourceLocationKey: "006CARDIOMAX",
       sourceObjectId: "006CARDIOMAX",
       sourceSystem: "ecrm_salesforce",
       stakeholderNamesOrRoles: ["Regional VP sponsor"],
@@ -184,6 +188,28 @@ describe("salesforce ingestion domain helpers", () => {
     expect(JSON.stringify(result)).not.toContain("oncology client");
   });
 
+  it("treats malformed or non-authorized adapter access as restricted", () => {
+    const result = buildSalesforceLaunchContextIngestionResult({
+      actorId: "Admin Reviewer",
+      record: {
+        ...adapterRecord,
+        accessState: "denied",
+      } as unknown as SalesforceAdapterRecord,
+      source: salesforceSource,
+    });
+
+    expect(result).toMatchObject({
+      launchContextRecords: [],
+      reasonState: "access_restricted",
+      syncStatus: "skipped",
+      updatedSource: {
+        accessState: "restricted",
+        freshnessState: "restricted",
+        ingestionStatus: "restricted",
+      },
+    });
+  });
+
   it("maps connector failures to a user-safe failed state", () => {
     const result = runPrototypeSalesforceIngestion({
       actorId: "Admin Reviewer",
@@ -213,7 +239,15 @@ describe("salesforce ingestion domain helpers", () => {
     });
   });
 
-  it("requires mapped launch association and retrieval fields", () => {
+  it("requires source provenance, mapped launch association, and retrieval fields", () => {
+    expect(
+      canIngestSalesforceSource({
+        ...salesforceSource,
+        objectId: undefined,
+        sourceUrl: undefined,
+      }),
+    ).toBe(false);
+
     const result = buildSalesforceLaunchContextIngestionResult({
       record: {
         ...adapterRecord,
@@ -246,6 +280,112 @@ describe("salesforce ingestion domain helpers", () => {
       },
       systemActor: "source-sync-service",
     });
+  });
+
+  it("rejects adapter records that do not match the registered source", () => {
+    const result = buildSalesforceLaunchContextIngestionResult({
+      actorId: "Admin Reviewer",
+      record: {
+        ...adapterRecord,
+        objectId: "006DIFFERENT",
+      },
+      source: salesforceSource,
+    });
+
+    expect(result).toMatchObject({
+      launchContextRecords: [],
+      reasonState: "missing_information",
+      syncStatus: "skipped",
+      updatedSource: {
+        freshnessState: "watch",
+        ingestionStatus: "incomplete",
+      },
+    });
+  });
+
+  it("does not persist unsafe Salesforce source URLs", () => {
+    const result = buildSalesforceLaunchContextIngestionResult({
+      actorId: "Admin Reviewer",
+      record: {
+        ...adapterRecord,
+        fieldValues: {
+          ...adapterRecord.fieldValues,
+          Record_Url__c: "javascript:alert(1)",
+        },
+        sourceUrl: "javascript:alert(2)",
+      },
+      source: {
+        ...salesforceSource,
+        sourceUrl: "javascript:alert(3)",
+      },
+    });
+
+    expect(result.syncStatus).toBe("completed");
+    expect(result.updatedSource.sourceLinkHealth).toBe("missing");
+    expect(result.updatedSource.sourceUrl).toBeUndefined();
+    expect(result.launchContextRecords[0].sourceUrl).toBeUndefined();
+    expect(JSON.stringify(result)).not.toContain("javascript:");
+  });
+
+  it("guards malformed field mappings without throwing", () => {
+    const result = buildSalesforceLaunchContextIngestionResult({
+      actorId: "Admin Reviewer",
+      record: {
+        ...adapterRecord,
+        fieldMapping: {
+          accountClientLabel: "Client_Label__c",
+          commercialContext: null,
+          opportunityOrEngagementId: "Opportunity_Number__c",
+          stakeholderNamesOrRoles: undefined,
+        },
+      } as unknown as SalesforceAdapterRecord,
+      source: salesforceSource,
+    });
+
+    expect(result).toMatchObject({
+      launchContextRecords: [],
+      reasonState: "missing_information",
+      syncStatus: "skipped",
+    });
+  });
+
+  it("blocks credential-like and raw-payload mapped fields", () => {
+    const result = buildSalesforceLaunchContextIngestionResult({
+      actorId: "Admin Reviewer",
+      record: {
+        ...adapterRecord,
+        fieldMapping: {
+          ...fieldMapping,
+          commercialContext: [
+            "Permitted_Commercial_Context__c",
+            "BearerToken__c",
+            "RawPayload__c",
+          ],
+          stakeholderNamesOrRoles: ["Executive_Sponsor__c", "SessionId__c"],
+        },
+        fieldValues: {
+          ...adapterRecord.fieldValues,
+          BearerToken__c: "secret bearer token",
+          RawPayload__c: '{"raw":"payload"}',
+          SessionId__c: "secret session",
+        },
+        permittedFieldNames: [
+          ...adapterRecord.permittedFieldNames,
+          "BearerToken__c",
+          "RawPayload__c",
+          "SessionId__c",
+        ],
+      },
+      source: salesforceSource,
+    });
+
+    expect(result.launchContextRecords[0]).toMatchObject({
+      commercialContext: ["Phase 2 expansion is in contracting."],
+      stakeholderNamesOrRoles: ["Regional VP sponsor"],
+    });
+    expect(JSON.stringify(result)).not.toContain("secret bearer token");
+    expect(JSON.stringify(result)).not.toContain("secret session");
+    expect(JSON.stringify(result)).not.toContain("payload");
   });
 
   it("formats user-safe Salesforce sync summaries", () => {

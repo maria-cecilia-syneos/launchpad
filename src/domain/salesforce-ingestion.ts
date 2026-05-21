@@ -2,6 +2,7 @@ import {
   getSourceLocationKey,
   normalizeSourceUrl,
   type SourceAccessState,
+  type SourceApprovalState,
   type SourceFreshnessState,
   type SourceIngestionStatus,
   type SourceLedgerRecord,
@@ -41,6 +42,10 @@ export type SalesforceLaunchContextRecord = {
   contextRecordId: string;
   launchId: string;
   opportunityOrEngagementId: string;
+  approvalState: SourceApprovalState;
+  accessState: SourceAccessState;
+  freshnessState: SourceFreshnessState;
+  refreshedAt: string;
   sourceId: string;
   sourceLocationKey: string;
   sourceObjectId?: string;
@@ -154,7 +159,8 @@ export function canIngestSalesforceSource(source: SourceLedgerRecord) {
     source.approvalState !== "approved" ||
     source.accessState !== "authorized" ||
     source.freshnessState === "restricted" ||
-    source.ingestionStatus === "restricted"
+    source.ingestionStatus === "restricted" ||
+    !getSourceLocationKey(source)
   ) {
     return false;
   }
@@ -184,7 +190,7 @@ export function buildSalesforceLaunchContextIngestionResult({
     });
   }
 
-  if (record.accessState === "restricted") {
+  if (record.accessState !== "authorized") {
     return buildSalesforceSyncOutcome({
       actorId,
       correlationId,
@@ -383,43 +389,57 @@ function buildSalesforceLaunchContextRecords(
   source: SourceLedgerRecord,
   record: SalesforceAdapterRecord,
 ): SalesforceLaunchContextRecord[] {
+  const fieldMapping = normalizeSalesforceFieldMapping(record.fieldMapping);
   const accountClientLabel = getMappedString(
     record,
-    record.fieldMapping.accountClientLabel,
+    fieldMapping.accountClientLabel,
   );
-  const launchId = getMappedString(record, record.fieldMapping.launchId);
+  const launchId = getMappedString(record, fieldMapping.launchId);
   const opportunityOrEngagementId = getMappedString(
     record,
-    record.fieldMapping.opportunityOrEngagementId,
+    fieldMapping.opportunityOrEngagementId,
   );
 
   if (!accountClientLabel || !launchId || !opportunityOrEngagementId) {
     return [];
   }
 
-  const sourceLocationKey = getSourceLocationKey(source) ?? source.sourceId;
+  const sourceLocationKey = getSourceLocationKey(source);
+  const mappedSourceUrl = getMappedSourceUrl(record, fieldMapping.sourceUrl);
+  const normalizedRecordSourceUrl =
+    mappedSourceUrl ?? normalizeSourceUrl(record.sourceUrl);
+
+  if (
+    !sourceLocationKey ||
+    hasMismatchedSalesforceIdentity({
+      record,
+      recordSourceUrl: normalizedRecordSourceUrl,
+      source,
+    })
+  ) {
+    return [];
+  }
+
   const sourceObjectId = record.objectId?.trim() || source.objectId;
-  const mappedSourceUrl = record.fieldMapping.sourceUrl
-    ? getMappedString(record, record.fieldMapping.sourceUrl)
-    : undefined;
-  const sourceUrl =
-    normalizeSourceUrl(mappedSourceUrl) ??
-    normalizeSourceUrl(record.sourceUrl) ??
-    source.sourceUrl;
+  const sourceUrl = normalizedRecordSourceUrl ?? normalizeSourceUrl(source.sourceUrl);
 
   return [
     {
+      accessState: source.accessState,
       accountClientLabel,
+      approvalState: source.approvalState,
       commercialContext: getMappedStringList(
         record,
-        record.fieldMapping.commercialContext,
+        fieldMapping.commercialContext,
       ),
       contextRecordId: createSafeId(
         "sfctx",
         `${source.sourceId}-${sourceLocationKey}-${sourceObjectId ?? accountClientLabel}`,
       ),
+      freshnessState: "fresh",
       launchId,
       opportunityOrEngagementId,
+      refreshedAt: record.lastModifiedAt,
       sourceId: source.sourceId,
       sourceLocationKey,
       sourceObjectId,
@@ -427,7 +447,7 @@ function buildSalesforceLaunchContextRecords(
       sourceUrl,
       stakeholderNamesOrRoles: getMappedStringList(
         record,
-        record.fieldMapping.stakeholderNamesOrRoles,
+        fieldMapping.stakeholderNamesOrRoles,
       ),
     },
   ];
@@ -446,12 +466,17 @@ function normalizeSalesforceSource(
     lastRefreshedAt: record.lastModifiedAt,
     objectId: contextRecord.sourceObjectId ?? source.objectId,
     sourceName: `${contextRecord.accountClientLabel} Salesforce Context`,
-    sourceUrl: contextRecord.sourceUrl ?? source.sourceUrl,
+    sourceLinkHealth: contextRecord.sourceUrl ? "healthy" : "missing",
+    sourceUrl: contextRecord.sourceUrl ?? normalizeSourceUrl(source.sourceUrl),
   };
 }
 
 function getMappedString(record: SalesforceAdapterRecord, fieldName?: string) {
-  if (!fieldName || !record.permittedFieldNames.includes(fieldName)) {
+  if (
+    !fieldName ||
+    isUnsafeMappedFieldName(fieldName) ||
+    !record.permittedFieldNames.includes(fieldName)
+  ) {
     return undefined;
   }
 
@@ -462,15 +487,87 @@ function getMappedStringList(
   record: SalesforceAdapterRecord,
   fieldNames: string[],
 ) {
-  return fieldNames
+  return getMappedFieldList(fieldNames)
     .flatMap((fieldName) => {
-      if (!record.permittedFieldNames.includes(fieldName)) {
+      if (
+        isUnsafeMappedFieldName(fieldName) ||
+        !record.permittedFieldNames.includes(fieldName)
+      ) {
         return [];
       }
 
       return normalizeFieldValueList(record.fieldValues[fieldName]);
     })
     .filter(Boolean);
+}
+
+function getMappedFieldList(fieldNames: unknown): string[] {
+  return Array.isArray(fieldNames)
+    ? fieldNames.filter(
+        (fieldName): fieldName is string => typeof fieldName === "string",
+      )
+    : [];
+}
+
+function getMappedSourceUrl(
+  record: SalesforceAdapterRecord,
+  sourceUrlField?: string,
+) {
+  return normalizeSourceUrl(getMappedString(record, sourceUrlField));
+}
+
+function normalizeSalesforceFieldMapping(fieldMapping: unknown) {
+  const mapping =
+    fieldMapping && typeof fieldMapping === "object"
+      ? (fieldMapping as Partial<SalesforceFieldMapping>)
+      : {};
+
+  return {
+    accountClientLabel:
+      typeof mapping.accountClientLabel === "string"
+        ? mapping.accountClientLabel
+        : undefined,
+    commercialContext: getMappedFieldList(mapping.commercialContext),
+    launchId:
+      typeof mapping.launchId === "string" ? mapping.launchId : undefined,
+    opportunityOrEngagementId:
+      typeof mapping.opportunityOrEngagementId === "string"
+        ? mapping.opportunityOrEngagementId
+        : undefined,
+    sourceUrl:
+      typeof mapping.sourceUrl === "string" ? mapping.sourceUrl : undefined,
+    stakeholderNamesOrRoles: getMappedFieldList(mapping.stakeholderNamesOrRoles),
+  };
+}
+
+function hasMismatchedSalesforceIdentity({
+  record,
+  recordSourceUrl,
+  source,
+}: {
+  record: SalesforceAdapterRecord;
+  recordSourceUrl?: string;
+  source: SourceLedgerRecord;
+}) {
+  const sourceObjectId = source.objectId?.trim();
+  const recordObjectId = record.objectId?.trim();
+  const sourceUrl = normalizeSourceUrl(source.sourceUrl);
+
+  if (sourceObjectId && recordObjectId && sourceObjectId !== recordObjectId) {
+    return true;
+  }
+
+  if (sourceUrl && recordSourceUrl && sourceUrl !== recordSourceUrl) {
+    return true;
+  }
+
+  return false;
+}
+
+function isUnsafeMappedFieldName(fieldName: string) {
+  return /authorization|bearer|client.?secret|credential|password|payload|raw|secret|session|token/i.test(
+    fieldName,
+  );
 }
 
 function normalizeFieldValue(value: unknown) {
@@ -554,9 +651,7 @@ function getAuditEventType(syncStatus: SalesforceSyncStatus) {
 function createPrototypeSalesforceAdapterRecord(
   source: SourceLedgerRecord,
 ): SalesforceAdapterRecord {
-  const sourceUrl =
-    source.sourceUrl ??
-    "https://example.my.salesforce.com/lightning/r/Opportunity/006CARDIOMAX/view";
+  const sourceUrl = source.sourceUrl;
 
   return {
     accessState: "authorized",
@@ -566,7 +661,7 @@ function createPrototypeSalesforceAdapterRecord(
       Commercial_Context__c: "Phase 2 expansion is in contracting.",
       Launch_Id__c: "launch-cardiomax-2026",
       Opportunity_Number__c: "OPP-4242",
-      Record_Url__c: sourceUrl,
+      ...(sourceUrl ? { Record_Url__c: sourceUrl } : {}),
       Stakeholder_Role__c: "Regional VP sponsor",
     },
     lastModifiedAt: "2026-05-21T14:30:00.000Z",
@@ -577,7 +672,7 @@ function createPrototypeSalesforceAdapterRecord(
       "Commercial_Context__c",
       "Launch_Id__c",
       "Opportunity_Number__c",
-      "Record_Url__c",
+      ...(sourceUrl ? ["Record_Url__c"] : []),
       "Stakeholder_Role__c",
     ],
     sourceUrl,

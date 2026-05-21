@@ -177,6 +177,63 @@ describe("SourceLedgerPanel", () => {
     );
   });
 
+  it("does not update a different source system that happens to share a location key", async () => {
+    const user = userEvent.setup();
+    const sharedObjectId = "shared-enterprise-object";
+    const existingTeamsSource = buildSourceRegistrationRecord(
+      {
+        accessState: "authorized",
+        approvalState: "approved",
+        freshnessState: "fresh",
+        ingestionStatus: "ready",
+        objectId: sharedObjectId,
+        owningTeam: "Launch Operations",
+        sourceName: "Shared Teams source",
+        sourceSystem: "teams",
+        sourceType: "teams_channel",
+      },
+      {
+        registeredAt: "2026-05-21T14:05:00.000Z",
+        sourceId: "src-shared-teams-source",
+      },
+    );
+
+    render(
+      <SourceLedgerPanel
+        initialSources={[existingTeamsSource]}
+        session={adminSession}
+      />,
+    );
+
+    await user.type(
+      screen.getByRole("textbox", { name: /source name/i }),
+      "Shared Salesforce source",
+    );
+    await user.type(
+      screen.getByRole("textbox", { name: /owning team/i }),
+      "Sales Operations",
+    );
+    await user.type(
+      screen.getByRole("textbox", { name: /object id/i }),
+      sharedObjectId,
+    );
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: /source system/i }),
+      "ecrm_salesforce",
+    );
+    await user.click(screen.getByRole("button", { name: /register source/i }));
+
+    expect(screen.getByRole("status")).toHaveTextContent(
+      /source registered in source ledger/i,
+    );
+    expect(
+      screen.getByRole("article", { name: /shared teams source/i }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("article", { name: /shared salesforce source/i }),
+    ).toBeVisible();
+  });
+
   it("does not show save success when audit recording fails", async () => {
     const user = userEvent.setup();
     const onSourceAuditEvent = vi.fn(() => {
@@ -567,7 +624,7 @@ describe("SourceLedgerPanel", () => {
         approvalState: "approved",
         freshnessState: "watch",
         ingestionStatus: "ready",
-        objectId: "sf-cardiomax-opportunity",
+        objectId: "006CARDIOMAX",
         owningTeam: "Sales Operations",
         sourceName: "CARDIOMAX Salesforce Launch Context",
         sourceSystem: "ecrm_salesforce",
@@ -605,6 +662,9 @@ describe("SourceLedgerPanel", () => {
       .toBeVisible();
     expect(within(salesforceResult).getByText(/ingestion: complete/i))
       .toBeVisible();
+    expect(
+      within(salesforceResult).getByText(/source-link health: healthy/i),
+    ).toBeVisible();
     expect(salesforceResult).toHaveTextContent(
       /1 salesforce launch context record prepared for retrieval/i,
     );

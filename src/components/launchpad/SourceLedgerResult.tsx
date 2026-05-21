@@ -6,6 +6,7 @@ import {
   freshnessStateLabels,
   ingestionStatusLabels,
   normalizeSourceUrl,
+  sourceLinkHealthLabels,
   type VisibleSourceLedgerRecord,
 } from "@/domain/source-ledger";
 
@@ -86,6 +87,10 @@ export function SourceLedgerResult({
         <SourceTerm
           label="Ingestion"
           value={ingestionStatusLabels[source.ingestionStatus]}
+        />
+        <SourceTerm
+          label="Source-link health"
+          value={sourceLinkHealthLabels[source.sourceLinkHealth]}
         />
       </dl>
 

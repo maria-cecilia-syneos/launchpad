@@ -10,7 +10,7 @@ import {
   createPrototypeSourceRecords,
   filterVisibleSourceRecords,
   freshnessStateLabels,
-  getSourceLocationKey,
+  hasSameSourceLedgerLocation,
   ingestionStatusLabels,
   sourceSystemLabels,
   sourceTypesBySystem,
@@ -230,7 +230,7 @@ export function SourceLedgerPanel({
 
     const record = buildSourceRegistrationRecord(input);
     const matchingSource = sources.find(
-      (source) => getSourceLocationKey(source) === getSourceLocationKey(record),
+      (source) => hasSameSourceLedgerLocation(source, record),
     );
     const storedRecord = matchingSource
       ? {
@@ -252,7 +252,7 @@ export function SourceLedgerPanel({
       setSources((currentSources) => {
         const currentIndex = currentSources.findIndex(
           (source) =>
-            getSourceLocationKey(source) === getSourceLocationKey(storedRecord),
+            hasSameSourceLedgerLocation(source, storedRecord),
         );
 
         if (currentIndex === -1) {
@@ -287,12 +287,12 @@ export function SourceLedgerPanel({
       `Applying governance constraints and retrieving source context for ${source.sourceName}.`,
     );
 
-    const { auditEvent, message, updatedSource } = runSourceIngestion(
-      source,
-      session.user.name,
-    );
-
     try {
+      const { auditEvent, message, updatedSource } = runSourceIngestion(
+        source,
+        session.user.name,
+      );
+
       setAuditEvents((current) => [...current, auditEvent]);
       onSourceAuditEvent?.(auditEvent);
       localSourceIds.current.add(updatedSource.sourceId);

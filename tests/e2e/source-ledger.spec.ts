@@ -17,6 +17,8 @@ test("shows registered Source Ledger records on the Sources surface", async ({
   await expect(page.getByText("Source system: Teams")).toBeVisible();
   await expect(page.getByText("Source system: ECRM/Salesforce"))
     .toBeVisible();
+  await expect(page.getByText("Source-link health: Healthy").first())
+    .toBeVisible();
   await expect(page.getByText("Freshness: Fresh").first()).toBeVisible();
   await expect(page.getByText("Ingestion: Complete").first()).toBeVisible();
   await expect(page.getByText("Approval: Stale")).toBeVisible();
