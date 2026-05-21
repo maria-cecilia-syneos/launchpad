@@ -1,0 +1,54 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+  --card: #ffffff;
+  --card-foreground: #171717;
+  --border: #d7d7d7;
+  --muted-foreground: #5f6368;
+  --syneos-orange: #f26722;
+  --syneos-light-orange: #f8a45d;
+  --syneos-gold: #f2b441;
+  --syneos-dark-gray: #2f3437;
+  --syneos-teal: #007c89;
+  --syneos-purple: #6b4fb3;
+  --syneos-green: #2d7d46;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-border: var(--border);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-syneos-orange: var(--syneos-orange);
+  --color-syneos-light-orange: var(--syneos-light-orange);
+  --color-syneos-gold: var(--syneos-gold);
+  --color-syneos-dark-gray: var(--syneos-dark-gray);
+  --color-syneos-teal: var(--syneos-teal);
+  --color-syneos-purple: var(--syneos-purple);
+  --color-syneos-green: var(--syneos-green);
+  --font-sans: Arial, Helvetica, sans-serif;
+  --font-mono: "Courier New", Courier, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+}
+
+:focus-visible {
+  outline: 3px solid var(--syneos-orange);
+  outline-offset: 2px;
+}
