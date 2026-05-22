@@ -1,0 +1,389 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  createPrototypeHandoffArtifacts,
+  getHandoffResponsibleOwner,
+  markHandoffReadyForReview,
+  requestReusableHandoff,
+  saveHandoffStructuredContent,
+  validateHandoffRequest,
+  validateHandoffReadiness,
+  type HandoffContentInput,
+  type HandoffRequestInput,
+} from "./handoff";
+
+const validRequest: HandoffRequestInput = {
+  launchId: "cardiomax",
+  workstreamId: "deployment-readiness",
+  sendingTeam: "Launch Operations",
+  receivingTeam: "Deployment Solutions",
+  purpose: "Prepare Deployment Solutions for kickoff readiness.",
+  requestedTiming: "Before June kickoff",
+  supportingSources: [
+    {
+      provenanceLabel: "Source Ledger",
+      sourceId: "src-cardiomax-launch-plan",
+      title: "CARDIOMAX Launch Plan",
+    },
+  ],
+};
+
+const completeContent: HandoffContentInput = {
+  assumptions: {
+    state: "current",
+    supportingSources: [],
+    text: "No additional delivery assumptions are known.",
+  },
+  commitments: {
+    state: "current",
+    supportingSources: [
+      {
+        accessState: "authorized",
+        approvalState: "approved",
+        freshnessState: "fresh",
+        provenanceLabel: "Source Ledger",
+        sourceId: "src-cardiomax-launch-plan",
+        title: "CARDIOMAX Launch Plan",
+      },
+    ],
+    text: "Deploy kickoff materials before the June kickoff window.",
+  },
+  openQuestions: {
+    state: "current",
+    supportingSources: [],
+    text: "No open questions remain for kickoff readiness.",
+  },
+  owners: {
+    state: "current",
+    supportingSources: [],
+    text: "Deployment Solutions owns kickoff readiness; Launch Operations owns source updates.",
+  },
+  risks: {
+    state: "current",
+    supportingSources: [],
+    text: "Late asset updates could affect deployment preparation.",
+  },
+  scope: {
+    state: "current",
+    supportingSources: [],
+    text: "Deployment Solutions will prepare kickoff context and readiness checks.",
+  },
+};
+
+describe("handoff domain", () => {
+  it("validates required handoff request fields", () => {
+    expect(
+      validateHandoffRequest({
+        ...validRequest,
+        purpose: " ",
+        receivingTeam: "",
+        requestedTiming: "",
+        workstreamId: "",
+      }),
+    ).toEqual([
+      {
+        field: "workstreamId",
+        message: "Launch or workstream is required.",
+      },
+      {
+        field: "receivingTeam",
+        message: "Receiving team is required.",
+      },
+      {
+        field: "purpose",
+        message: "Handoff purpose is required.",
+      },
+      {
+        field: "requestedTiming",
+        message: "Requested timing is required.",
+      },
+    ]);
+  });
+
+  it("creates a reusable handoff artifact with owner and audit details", () => {
+    const result = requestReusableHandoff([], validRequest, {
+      actorId: "CeCe Rivera",
+      correlationId: "corr-handoff-create",
+      occurredAt: "2026-05-22T10:00:00.000Z",
+    });
+
+    expect(result.action).toBe("created");
+    expect(result.artifact).toMatchObject({
+      handoffId: "handoff-cardiomax-deployment-readiness-deployment-solutions",
+      launchId: "cardiomax",
+      receivingTeam: "Deployment Solutions",
+      responsibleOwner: "Deployment Solutions",
+      status: "requested",
+      workstreamId: "deployment-readiness",
+    });
+    expect(result.artifact.history).toEqual([
+      expect.objectContaining({
+        actorId: "CeCe Rivera",
+        provenanceLabel: "User request",
+        state: "current",
+        supportingSources: validRequest.supportingSources,
+      }),
+    ]);
+    expect(result.artifacts).toHaveLength(1);
+    expect(getHandoffResponsibleOwner(result.artifact)).toBe(
+      "Deployment Solutions",
+    );
+    expect(result.auditEvent).toMatchObject({
+      actorId: "CeCe Rivera",
+      correlationId: "corr-handoff-create",
+      eventType: "handoff.requested",
+      handoffId: result.artifact.handoffId,
+      launchId: "cardiomax",
+      metadata: {
+        action: "created",
+        receivingTeam: "Deployment Solutions",
+        sendingTeam: "Launch Operations",
+        workstreamId: "deployment-readiness",
+      },
+      occurredAt: "2026-05-22T10:00:00.000Z",
+    });
+  });
+
+  it("appends matching reusable handoff context without overwriting history", () => {
+    const existingArtifacts = createPrototypeHandoffArtifacts();
+    const existingArtifact = existingArtifacts[0];
+    const existingHistoryIds = existingArtifact.history.map(
+      (entry) => entry.historyId,
+    );
+
+    const result = requestReusableHandoff(existingArtifacts, {
+      ...validRequest,
+      purpose: "Add updated deployment training dependency.",
+      supportingSources: [
+        {
+          provenanceLabel: "Source Ledger",
+          sourceId: "src-cardiomax-approved-assets",
+          title: "CARDIOMAX Approved Asset Library",
+        },
+      ],
+    }, {
+      actorId: "CeCe Rivera",
+      correlationId: "corr-handoff-append",
+      occurredAt: "2026-05-22T11:30:00.000Z",
+    });
+
+    expect(result.action).toBe("appended");
+    expect(result.artifact.handoffId).toBe(existingArtifact.handoffId);
+    expect(result.artifact.history).toHaveLength(
+      existingArtifact.history.length + 1,
+    );
+    expect(result.artifact.history.slice(0, existingHistoryIds.length).map(
+      (entry) => entry.historyId,
+    )).toEqual(existingHistoryIds);
+    expect(result.artifact.history.map((entry) => entry.state)).toEqual(
+      expect.arrayContaining([
+        "current",
+        "stale",
+        "missing",
+        "superseded",
+        "conflicting",
+      ]),
+    );
+    expect(result.artifact.history.at(-1)).toMatchObject({
+      actorId: "CeCe Rivera",
+      purpose: "Add updated deployment training dependency.",
+      state: "current",
+      supportingSources: [
+        expect.objectContaining({
+          sourceId: "src-cardiomax-approved-assets",
+        }),
+      ],
+    });
+    expect(result.auditEvent.metadata.action).toBe("appended");
+  });
+
+  it("saves structured handoff content as a draft and preserves prior content in history", () => {
+    const [artifact] = createPrototypeHandoffArtifacts();
+    const firstSave = saveHandoffStructuredContent(
+      [artifact],
+      artifact.handoffId,
+      completeContent,
+      {
+        actorId: "CeCe Rivera",
+        correlationId: "corr-content-draft",
+        occurredAt: "2026-05-22T12:00:00.000Z",
+      },
+    );
+    const secondSave = saveHandoffStructuredContent(
+      firstSave.artifacts,
+      artifact.handoffId,
+      {
+        ...completeContent,
+        commitments: {
+          ...completeContent.commitments,
+          state: "superseded",
+          text: "Updated kickoff material commitment supersedes the prior handoff note.",
+        },
+      },
+      {
+        actorId: "CeCe Rivera",
+        correlationId: "corr-content-update",
+        occurredAt: "2026-05-22T12:30:00.000Z",
+      },
+    );
+
+    expect(firstSave.artifact.status).toBe("draft");
+    expect(firstSave.artifact.structuredContent.scope.text).toMatch(
+      /deployment solutions will prepare/i,
+    );
+    expect(firstSave.auditEvent).toMatchObject({
+      eventType: "handoff.updated",
+      metadata: {
+        action: "updated",
+        receivingTeam: "Deployment Solutions",
+        sendingTeam: "Launch Operations",
+        workstreamId: "deployment-readiness",
+      },
+    });
+    expect(secondSave.artifact.history.at(-1)).toMatchObject({
+      actorId: "CeCe Rivera",
+      provenanceLabel: "Structured content update",
+      state: "superseded",
+    });
+    expect(
+      secondSave.artifact.history.at(-1)?.structuredContent?.commitments.text,
+    ).toBe("Deploy kickoff materials before the June kickoff window.");
+    expect(secondSave.artifact.structuredContent.commitments.state).toBe(
+      "superseded",
+    );
+  });
+
+  it("moves a ready artifact back to requested when a new request is appended", () => {
+    const [artifact] = createPrototypeHandoffArtifacts();
+    const draft = saveHandoffStructuredContent(
+      [artifact],
+      artifact.handoffId,
+      completeContent,
+      {
+        actorId: "CeCe Rivera",
+        occurredAt: "2026-05-22T13:20:00.000Z",
+      },
+    );
+    const ready = markHandoffReadyForReview(
+      draft.artifacts,
+      artifact.handoffId,
+      {
+        actorId: "CeCe Rivera",
+        occurredAt: "2026-05-22T13:30:00.000Z",
+      },
+    );
+
+    const appended = requestReusableHandoff(
+      ready.artifacts,
+      {
+        ...validRequest,
+        purpose: "Add a post-review training dependency.",
+      },
+      {
+        actorId: "CeCe Rivera",
+        occurredAt: "2026-05-22T14:00:00.000Z",
+      },
+    );
+
+    expect(appended.action).toBe("appended");
+    expect(appended.artifact.status).toBe("requested");
+    expect(appended.artifact.history.at(-1)).toMatchObject({
+      purpose: "Add a post-review training dependency.",
+      state: "current",
+    });
+  });
+
+  it("validates readiness and marks complete handoff content ready for review", () => {
+    const [artifact] = createPrototypeHandoffArtifacts();
+    const draft = saveHandoffStructuredContent(
+      [artifact],
+      artifact.handoffId,
+      {
+        ...completeContent,
+        commitments: {
+          ...completeContent.commitments,
+          text: "",
+        },
+        openQuestions: {
+          ...completeContent.openQuestions,
+          state: "missing",
+          text: "Deployment owner confirmation is still open.",
+        },
+      },
+      {
+        actorId: "CeCe Rivera",
+        occurredAt: "2026-05-22T13:00:00.000Z",
+      },
+    );
+
+    expect(validateHandoffReadiness(draft.artifact)).toEqual([
+      {
+        field: "commitments",
+        message:
+          "Commitments are required before receiving-team readiness review.",
+      },
+      {
+        field: "openQuestions",
+        message:
+          "Open questions remain a readiness risk and must be resolved or explicitly marked as none.",
+      },
+    ]);
+
+    const unresolvedOpenQuestion = saveHandoffStructuredContent(
+      draft.artifacts,
+      artifact.handoffId,
+      {
+        ...completeContent,
+        openQuestions: {
+          ...completeContent.openQuestions,
+          state: "current",
+          text: "Legal approval is still open.",
+        },
+      },
+      {
+        actorId: "CeCe Rivera",
+        occurredAt: "2026-05-22T13:10:00.000Z",
+      },
+    );
+
+    expect(validateHandoffReadiness(unresolvedOpenQuestion.artifact)).toEqual([
+      {
+        field: "openQuestions",
+        message:
+          "Open questions remain a readiness risk and must be resolved or explicitly marked as none.",
+      },
+    ]);
+
+    const completeDraft = saveHandoffStructuredContent(
+      draft.artifacts,
+      artifact.handoffId,
+      completeContent,
+      {
+        actorId: "CeCe Rivera",
+        occurredAt: "2026-05-22T13:20:00.000Z",
+      },
+    );
+    const ready = markHandoffReadyForReview(
+      completeDraft.artifacts,
+      artifact.handoffId,
+      {
+        actorId: "CeCe Rivera",
+        correlationId: "corr-ready",
+        occurredAt: "2026-05-22T13:30:00.000Z",
+      },
+    );
+
+    expect(ready.artifact.status).toBe("ready_for_review");
+    expect(ready.auditEvent).toMatchObject({
+      correlationId: "corr-ready",
+      eventType: "handoff.ready_for_review",
+      metadata: {
+        action: "ready_for_review",
+        receivingTeam: "Deployment Solutions",
+        sendingTeam: "Launch Operations",
+        workstreamId: "deployment-readiness",
+      },
+      occurredAt: "2026-05-22T13:30:00.000Z",
+    });
+  });
+});

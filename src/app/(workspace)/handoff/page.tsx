@@ -1,10 +1,6 @@
-import { WorkspaceSurfacePlaceholder } from "@/components/launchpad/WorkspaceSurfacePlaceholder";
+import { HandoffRequestPanel } from "@/components/launchpad/HandoffRequestPanel";
+import { defaultWorkspaceSession } from "@/domain/workspace";
 
 export default function HandoffPage() {
-  return (
-    <WorkspaceSurfacePlaceholder
-      description="Reusable cross-functional handoff workspace for readiness, clarification, acceptance, and return decisions."
-      title="Handoff"
-    />
-  );
+  return <HandoffRequestPanel session={defaultWorkspaceSession} />;
 }
