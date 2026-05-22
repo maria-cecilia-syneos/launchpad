@@ -4,8 +4,15 @@ import {
   buildSourceRegistrationAuditEvent,
   buildSourceRegistrationRecord,
   createPrototypeSourceRecords,
+  defaultSourceLedgerFilters,
   filterVisibleSourceRecords,
+  filterSourceLedgerResults,
+  getActiveSourceLedgerFilters,
+  getSourceLedgerNextAction,
+  getSourceLedgerResultSummary,
+  hasActiveSourceLedgerFilters,
   validateSourceRegistration,
+  type SourceLedgerFilters,
   type SourceRegistrationInput,
 } from "./source-ledger";
 
@@ -186,5 +193,137 @@ describe("source ledger domain helpers", () => {
     });
 
     expect(firstEvent.eventId).not.toBe(secondEvent.eventId);
+  });
+
+  it("filters visible source records by text, metadata filters, and owner", () => {
+    const visibleSources = filterVisibleSourceRecords(
+      createPrototypeSourceRecords(),
+      "admin",
+    );
+
+    expect(
+      filterSourceLedgerResults(visibleSources, {
+        ...defaultSourceLedgerFilters,
+        query: "salesforce",
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        displayName: "CARDIOMAX Salesforce Launch Context",
+        matchRationale: "Matched source system.",
+      }),
+    ]);
+    expect(
+      filterSourceLedgerResults(visibleSources, {
+        ...defaultSourceLedgerFilters,
+        approvalState: "approved",
+        sourceSystem: "asset",
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        displayName: "CARDIOMAX Approved Asset Library",
+        matchRationale: "Matched source system and approval.",
+      }),
+    ]);
+    expect(
+      filterSourceLedgerResults(visibleSources, {
+        ...defaultSourceLedgerFilters,
+        sourceType: "handoff_artifact",
+      }).map((source) => source.displayName),
+    ).toEqual(["CARDIOMAX Deployment Handoff"]);
+    expect(
+      filterSourceLedgerResults(visibleSources, {
+        ...defaultSourceLedgerFilters,
+        freshnessState: "stale",
+      }).map((source) => source.displayName),
+    ).toEqual(["CARDIOMAX Smartsheet Status"]);
+    expect(
+      filterSourceLedgerResults(visibleSources, {
+        ...defaultSourceLedgerFilters,
+        ingestionStatus: "complete",
+      }).map((source) => source.displayName),
+    ).toEqual(["CARDIOMAX Launch Plan"]);
+    expect(
+      filterSourceLedgerResults(visibleSources, {
+        ...defaultSourceLedgerFilters,
+        accessState: "restricted",
+      }).map((source) => source.displayName),
+    ).toEqual(["Restricted commercial launch plan"]);
+    expect(
+      filterSourceLedgerResults(visibleSources, {
+        ...defaultSourceLedgerFilters,
+        owner: "deployment",
+      }).map((source) => source.displayName),
+    ).toEqual(["CARDIOMAX Deployment Handoff"]);
+  });
+
+  it("keeps search and filters redaction-safe for non-admin users", () => {
+    const visibleSources = filterVisibleSourceRecords(
+      createPrototypeSourceRecords(),
+      "project-manager",
+    );
+
+    expect(
+      filterSourceLedgerResults(visibleSources, {
+        ...defaultSourceLedgerFilters,
+        query: "commercial",
+      }),
+    ).toEqual([]);
+
+    const restrictedResults = filterSourceLedgerResults(visibleSources, {
+      ...defaultSourceLedgerFilters,
+      accessState: "restricted",
+    });
+
+    expect(restrictedResults).toEqual([
+      expect.objectContaining({
+        displayName: "Restricted source",
+        displayOwner: "Restricted",
+        matchRationale: "Matched access.",
+      }),
+    ]);
+    expect(JSON.stringify(restrictedResults)).not.toContain(
+      "Restricted commercial launch plan",
+    );
+    expect(JSON.stringify(restrictedResults)).not.toContain(
+      "Commercial Strategy",
+    );
+  });
+
+  it("summarizes active filters and next useful actions", () => {
+    const filters: SourceLedgerFilters = {
+      ...defaultSourceLedgerFilters,
+      freshnessState: "stale",
+      query: "status",
+      sourceSystem: "smartsheet",
+    };
+    const visibleSources = filterVisibleSourceRecords(
+      createPrototypeSourceRecords(),
+      "admin",
+    );
+    const staleSource = visibleSources.find(
+      (source) => source.freshnessState === "stale",
+    )!;
+    const failedSource = {
+      ...staleSource,
+      freshnessState: "stale" as const,
+      ingestionStatus: "failed" as const,
+    };
+
+    expect(hasActiveSourceLedgerFilters(defaultSourceLedgerFilters)).toBe(false);
+    expect(hasActiveSourceLedgerFilters(filters)).toBe(true);
+    expect(getActiveSourceLedgerFilters(filters)).toEqual([
+      { key: "query", label: "Search", value: "status" },
+      { key: "sourceSystem", label: "Source system", value: "Smartsheet" },
+      { key: "freshnessState", label: "Freshness", value: "Stale" },
+    ]);
+    expect(getSourceLedgerResultSummary(8, 1, true)).toBe(
+      "1 of 8 source records match current filters.",
+    );
+    expect(getSourceLedgerNextAction(staleSource, true)).toBe(
+      "Refresh this source or verify the latest source freshness.",
+    );
+    expect(getSourceLedgerNextAction(failedSource, true)).toBe(
+      "Retry ingestion or check connector and source access.",
+    );
   });
 });

@@ -85,17 +85,43 @@ export type SourceLedgerRecord = Omit<
 export type VisibleSourceLedgerRecord = {
   accessState: SourceAccessState;
   approvalState: SourceApprovalState;
+  displayObjectId?: string;
   displayName: string;
   displayOwner: string;
+  displaySourceId?: string;
   displaySourceSystem: string;
   displaySourceType: string;
   freshnessState: SourceFreshnessState;
   ingestionStatus: SourceIngestionStatus;
   isRedacted: boolean;
+  lastRefreshedAt?: string;
+  registeredAt?: string;
   sourceLinkHealth: SourceLinkHealthState;
   sourceKey: string;
   sourceUrl?: string;
   statusMessage: string;
+};
+
+export type SourceLedgerFilters = {
+  accessState: SourceAccessState | "";
+  approvalState: SourceApprovalState | "";
+  freshnessState: SourceFreshnessState | "";
+  ingestionStatus: SourceIngestionStatus | "";
+  owner: string;
+  query: string;
+  sourceSystem: SourceLedgerSystem | "";
+  sourceType: SourceLedgerSourceType | "";
+};
+
+export type SourceLedgerActiveFilter = {
+  key: keyof SourceLedgerFilters;
+  label: string;
+  value: string;
+};
+
+export type SourceLedgerSearchResult = VisibleSourceLedgerRecord & {
+  matchRationale: string;
+  nextAction: string;
 };
 
 export type SourceRegistrationAuditEvent = {
@@ -193,6 +219,17 @@ export const sourceTypesBySystem: Record<
   task: ["launch_task"],
   teams: ["teams_channel"],
   word_pdf: ["word_document", "pdf_document"],
+};
+
+export const defaultSourceLedgerFilters: SourceLedgerFilters = {
+  accessState: "",
+  approvalState: "",
+  freshnessState: "",
+  ingestionStatus: "",
+  owner: "",
+  query: "",
+  sourceSystem: "",
+  sourceType: "",
 };
 
 type BuildRecordOptions = {
@@ -554,13 +591,17 @@ export function toVisibleSourceRecord(
   return {
     accessState: record.accessState,
     approvalState: record.approvalState,
+    displayObjectId: record.objectId,
     displayName: record.sourceName,
     displayOwner: record.owningTeam,
+    displaySourceId: record.sourceId,
     displaySourceSystem: sourceSystemLabels[record.sourceSystem],
     displaySourceType: sourceTypeLabels[record.sourceType],
     freshnessState: record.freshnessState,
     ingestionStatus: record.ingestionStatus,
     isRedacted,
+    lastRefreshedAt: record.lastRefreshedAt,
+    registeredAt: record.registeredAt,
     sourceLinkHealth: record.sourceLinkHealth,
     sourceKey: record.sourceId,
     sourceUrl: record.sourceUrl,
@@ -573,6 +614,165 @@ export function filterVisibleSourceRecords(
   role: WorkspaceRole,
 ): VisibleSourceLedgerRecord[] {
   return records.map((record, index) => toVisibleSourceRecord(record, role, index));
+}
+
+export function filterSourceLedgerResults(
+  visibleSources: VisibleSourceLedgerRecord[],
+  filters: SourceLedgerFilters,
+  options: { isAdmin?: boolean } = {},
+): SourceLedgerSearchResult[] {
+  return visibleSources
+    .filter((source) => sourceMatchesFilters(source, filters))
+    .map((source) => ({
+      ...source,
+      matchRationale: getSourceMatchRationale(source, filters),
+      nextAction: getSourceLedgerNextAction(source, Boolean(options.isAdmin)),
+    }));
+}
+
+export function hasActiveSourceLedgerFilters(filters: SourceLedgerFilters) {
+  return getActiveSourceLedgerFilters(filters).length > 0;
+}
+
+export function getActiveSourceLedgerFilters(
+  filters: SourceLedgerFilters,
+): SourceLedgerActiveFilter[] {
+  const activeFilters: SourceLedgerActiveFilter[] = [];
+  const query = normalizeSearchValue(filters.query);
+  const owner = normalizeSearchValue(filters.owner);
+
+  if (query) {
+    activeFilters.push({
+      key: "query",
+      label: "Search",
+      value: filters.query.trim(),
+    });
+  }
+
+  if (filters.sourceSystem) {
+    activeFilters.push({
+      key: "sourceSystem",
+      label: "Source system",
+      value: sourceSystemLabels[filters.sourceSystem],
+    });
+  }
+
+  if (filters.sourceType) {
+    activeFilters.push({
+      key: "sourceType",
+      label: "Source type",
+      value: sourceTypeLabels[filters.sourceType],
+    });
+  }
+
+  if (filters.approvalState) {
+    activeFilters.push({
+      key: "approvalState",
+      label: "Approval",
+      value: approvalStateLabels[filters.approvalState],
+    });
+  }
+
+  if (filters.freshnessState) {
+    activeFilters.push({
+      key: "freshnessState",
+      label: "Freshness",
+      value: freshnessStateLabels[filters.freshnessState],
+    });
+  }
+
+  if (filters.accessState) {
+    activeFilters.push({
+      key: "accessState",
+      label: "Access",
+      value: accessStateLabels[filters.accessState],
+    });
+  }
+
+  if (filters.ingestionStatus) {
+    activeFilters.push({
+      key: "ingestionStatus",
+      label: "Ingestion",
+      value: ingestionStatusLabels[filters.ingestionStatus],
+    });
+  }
+
+  if (owner) {
+    activeFilters.push({
+      key: "owner",
+      label: "Owner",
+      value: filters.owner.trim(),
+    });
+  }
+
+  return activeFilters;
+}
+
+export function getSourceLedgerResultSummary(
+  totalVisible: number,
+  filteredCount: number,
+  hasActiveFilters: boolean,
+) {
+  if (!hasActiveFilters) {
+    return `${formatCount(totalVisible, "source record")} available.`;
+  }
+
+  return `${filteredCount} of ${totalVisible} source records match current filters.`;
+}
+
+export function getSourceLedgerNextAction(
+  source: Pick<
+    VisibleSourceLedgerRecord,
+    | "accessState"
+    | "freshnessState"
+    | "ingestionStatus"
+    | "isRedacted"
+    | "sourceLinkHealth"
+  >,
+  isAdmin = false,
+) {
+  if (source.accessState === "restricted" || source.isRedacted) {
+    return isAdmin
+      ? "Review access permissions before sharing source details."
+      : "Access is restricted. Ask an admin if you need this source.";
+  }
+
+  if (source.ingestionStatus === "failed") {
+    return isAdmin
+      ? "Retry ingestion or check connector and source access."
+      : "Ask an admin to review the failed ingestion.";
+  }
+
+  if (source.ingestionStatus === "incomplete") {
+    return isAdmin
+      ? "Review missing source information before relying on this source."
+      : "Ask an admin to complete the missing source information.";
+  }
+
+  if (source.freshnessState === "stale" || source.ingestionStatus === "stale") {
+    return isAdmin
+      ? "Refresh this source or verify the latest source freshness."
+      : "Ask an admin to refresh this stale source.";
+  }
+
+  if (
+    source.sourceLinkHealth === "missing" ||
+    source.sourceLinkHealth === "unverified"
+  ) {
+    return isAdmin
+      ? "Confirm the source link before opening or citing this source."
+      : "Ask an admin to confirm the source link.";
+  }
+
+  if (source.sourceLinkHealth === "restricted") {
+    return isAdmin
+      ? "Review source-link permissions before opening this source."
+      : "Source-link access is restricted.";
+  }
+
+  return isAdmin
+    ? "No immediate admin action needed."
+    : "No immediate action needed.";
 }
 
 export function getSourceLocationKey(
@@ -609,6 +809,119 @@ export function isRestrictedSource(record: SourceLedgerRecord) {
     record.freshnessState === "restricted" ||
     record.ingestionStatus === "restricted"
   );
+}
+
+function sourceMatchesFilters(
+  source: VisibleSourceLedgerRecord,
+  filters: SourceLedgerFilters,
+) {
+  const owner = normalizeSearchValue(filters.owner);
+
+  if (filters.sourceSystem && source.displaySourceSystem !== sourceSystemLabels[filters.sourceSystem]) {
+    return false;
+  }
+
+  if (filters.sourceType && source.displaySourceType !== sourceTypeLabels[filters.sourceType]) {
+    return false;
+  }
+
+  if (filters.approvalState && source.approvalState !== filters.approvalState) {
+    return false;
+  }
+
+  if (filters.freshnessState && source.freshnessState !== filters.freshnessState) {
+    return false;
+  }
+
+  if (filters.accessState && source.accessState !== filters.accessState) {
+    return false;
+  }
+
+  if (filters.ingestionStatus && source.ingestionStatus !== filters.ingestionStatus) {
+    return false;
+  }
+
+  if (owner && !normalizeSearchValue(source.displayOwner).includes(owner)) {
+    return false;
+  }
+
+  const query = normalizeSearchValue(filters.query);
+
+  return !query || getQueryMatchLabels(source, query).length > 0;
+}
+
+function getSourceMatchRationale(
+  source: VisibleSourceLedgerRecord,
+  filters: SourceLedgerFilters,
+) {
+  const filterMatchLabels = getActiveFilterMatchLabels(filters);
+  const query = normalizeSearchValue(filters.query);
+  const queryMatchLabels = query ? getQueryMatchLabels(source, query) : [];
+  const labels =
+    filterMatchLabels.length > 0
+      ? filterMatchLabels
+      : queryMatchLabels.slice(0, 1);
+
+  if (labels.length === 0) {
+    return "Visible because no filters are active.";
+  }
+
+  return `Matched ${joinMatchLabels(labels)}.`;
+}
+
+function getActiveFilterMatchLabels(filters: SourceLedgerFilters) {
+  return [
+    filters.sourceSystem ? "source system" : undefined,
+    filters.sourceType ? "source type" : undefined,
+    filters.approvalState ? "approval" : undefined,
+    filters.freshnessState ? "freshness" : undefined,
+    filters.accessState ? "access" : undefined,
+    filters.ingestionStatus ? "ingestion" : undefined,
+    normalizeSearchValue(filters.owner) ? "owner" : undefined,
+  ].filter((label): label is string => Boolean(label));
+}
+
+function getQueryMatchLabels(source: VisibleSourceLedgerRecord, query: string) {
+  const values: Array<{ label: string; value?: string }> = [
+    { label: "source system", value: source.displaySourceSystem },
+    { label: "source type", value: source.displaySourceType },
+    { label: "approval", value: approvalStateLabels[source.approvalState] },
+    { label: "freshness", value: freshnessStateLabels[source.freshnessState] },
+    { label: "access", value: accessStateLabels[source.accessState] },
+    { label: "ingestion", value: ingestionStatusLabels[source.ingestionStatus] },
+    {
+      label: "source-link health",
+      value: sourceLinkHealthLabels[source.sourceLinkHealth],
+    },
+    { label: "title", value: source.displayName },
+    { label: "owner", value: source.displayOwner },
+  ];
+
+  return values
+    .filter(({ value }) => normalizeSearchValue(value).includes(query))
+    .map(({ label }) => label);
+}
+
+function normalizeSearchValue(value?: string) {
+  return value?.replace(/\s+/g, " ").trim().toLowerCase() ?? "";
+}
+
+function joinMatchLabels(labels: string[]) {
+  const uniqueLabels = [...new Set(labels)];
+
+  if (uniqueLabels.length === 1) {
+    return uniqueLabels[0];
+  }
+
+  if (uniqueLabels.length === 2) {
+    return `${uniqueLabels[0]} and ${uniqueLabels[1]}`;
+  }
+
+  return `${uniqueLabels.slice(0, -1).join(", ")}, and ${uniqueLabels.at(-1)}`;
+}
+
+function formatCount(count: number, singularNoun: string) {
+  return `${count} ${singularNoun}${count === 1 ? "" : "s"}`;
 }
 
 function inferSourceLinkHealth(

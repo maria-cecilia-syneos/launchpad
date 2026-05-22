@@ -8,9 +8,14 @@ import {
   buildSourceRegistrationAuditEvent,
   buildSourceRegistrationRecord,
   createPrototypeSourceRecords,
+  defaultSourceLedgerFilters,
   filterVisibleSourceRecords,
+  filterSourceLedgerResults,
   freshnessStateLabels,
+  getActiveSourceLedgerFilters,
+  getSourceLedgerResultSummary,
   hasSameSourceLedgerLocation,
+  hasActiveSourceLedgerFilters,
   ingestionStatusLabels,
   sourceSystemLabels,
   sourceTypesBySystem,
@@ -156,6 +161,7 @@ export function SourceLedgerPanel({
   >({});
   const [syncingSourceId, setSyncingSourceId] = useState<string | null>(null);
   const [sources, setSources] = useState(() => initialSources);
+  const [sourceFilters, setSourceFilters] = useState(defaultSourceLedgerFilters);
   const [formState, setFormState] =
     useState<RegistrationFormState>(initialFormState);
   const [statusMessage, setStatusMessage] = useState("");
@@ -163,6 +169,23 @@ export function SourceLedgerPanel({
   const visibleSources = useMemo(
     () => filterVisibleSourceRecords(sources, session.user.role),
     [session.user.role, sources],
+  );
+  const filteredSources = useMemo(
+    () =>
+      filterSourceLedgerResults(visibleSources, sourceFilters, {
+        isAdmin,
+      }),
+    [isAdmin, sourceFilters, visibleSources],
+  );
+  const activeFilters = useMemo(
+    () => getActiveSourceLedgerFilters(sourceFilters),
+    [sourceFilters],
+  );
+  const hasActiveFilters = activeFilters.length > 0;
+  const sourceResultSummary = getSourceLedgerResultSummary(
+    visibleSources.length,
+    filteredSources.length,
+    hasActiveFilters,
   );
   const sourceById = useMemo(
     () => new Map(sources.map((source) => [source.sourceId, source])),
@@ -206,6 +229,16 @@ export function SourceLedgerPanel({
     value: RegistrationFormState[Key],
   ) {
     setFormState((current) => ({
+      ...current,
+      [key]: value,
+    }));
+  }
+
+  function updateSourceFilter<Key extends keyof typeof sourceFilters>(
+    key: Key,
+    value: (typeof sourceFilters)[Key],
+  ) {
+    setSourceFilters((current) => ({
       ...current,
       [key]: value,
     }));
@@ -515,8 +548,184 @@ export function SourceLedgerPanel({
       ) : null}
 
       {visibleSources.length > 0 ? (
+        <section
+          aria-label="Search and filter Source Ledger"
+          className="rounded-lg border border-border bg-card p-5 shadow-sm"
+        >
+          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+            <label className="grid gap-1 text-sm font-medium md:col-span-2">
+              Search sources
+              <input
+                className="min-h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                onChange={(event) =>
+                  updateSourceFilter("query", event.target.value)
+                }
+                placeholder="Search title, owner, source, or status"
+                type="search"
+                value={sourceFilters.query}
+              />
+            </label>
+            <SourceSelect
+              label="System filter"
+              onChange={(value) =>
+                updateSourceFilter(
+                  "sourceSystem",
+                  value as typeof sourceFilters.sourceSystem,
+                )
+              }
+              options={[
+                { label: "All source systems", value: "" },
+                ...sourceSystemOptions.map((value) => ({
+                  label: sourceSystemLabels[value],
+                  value,
+                })),
+              ]}
+              value={sourceFilters.sourceSystem}
+            />
+            <SourceSelect
+              label="Source type filter"
+              onChange={(value) =>
+                updateSourceFilter(
+                  "sourceType",
+                  value as typeof sourceFilters.sourceType,
+                )
+              }
+              options={[
+                { label: "All source types", value: "" },
+                ...Object.entries(sourceTypeLabels).map(([value, label]) => ({
+                  label,
+                  value,
+                })),
+              ]}
+              value={sourceFilters.sourceType}
+            />
+            <SourceSelect
+              label="Approval filter"
+              onChange={(value) =>
+                updateSourceFilter(
+                  "approvalState",
+                  value as typeof sourceFilters.approvalState,
+                )
+              }
+              options={[
+                { label: "All approval states", value: "" },
+                ...approvalStateOptions.map((value) => ({
+                  label: approvalStateLabels[value],
+                  value,
+                })),
+              ]}
+              value={sourceFilters.approvalState}
+            />
+            <SourceSelect
+              label="Freshness filter"
+              onChange={(value) =>
+                updateSourceFilter(
+                  "freshnessState",
+                  value as typeof sourceFilters.freshnessState,
+                )
+              }
+              options={[
+                { label: "All freshness states", value: "" },
+                ...freshnessStateOptions.map((value) => ({
+                  label: freshnessStateLabels[value],
+                  value,
+                })),
+              ]}
+              value={sourceFilters.freshnessState}
+            />
+            <SourceSelect
+              label="Access filter"
+              onChange={(value) =>
+                updateSourceFilter(
+                  "accessState",
+                  value as typeof sourceFilters.accessState,
+                )
+              }
+              options={[
+                { label: "All access states", value: "" },
+                ...accessStateOptions.map((value) => ({
+                  label: value === "authorized" ? "Authorized" : "Restricted",
+                  value,
+                })),
+              ]}
+              value={sourceFilters.accessState}
+            />
+            <SourceSelect
+              label="Ingestion filter"
+              onChange={(value) =>
+                updateSourceFilter(
+                  "ingestionStatus",
+                  value as typeof sourceFilters.ingestionStatus,
+                )
+              }
+              options={[
+                { label: "All ingestion states", value: "" },
+                ...ingestionStatusOptions.map((value) => ({
+                  label: ingestionStatusLabels[value],
+                  value,
+                })),
+              ]}
+              value={sourceFilters.ingestionStatus}
+            />
+            <label className="grid gap-1 text-sm font-medium md:col-span-2">
+              Owner filter
+              <input
+                className="min-h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                onChange={(event) =>
+                  updateSourceFilter("owner", event.target.value)
+                }
+                placeholder="Filter by visible owner"
+                value={sourceFilters.owner}
+              />
+            </label>
+          </div>
+
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            {activeFilters.map((filter) => (
+              <span
+                className="rounded-md border border-border bg-background px-2 py-1 text-xs font-medium"
+                key={filter.key}
+              >
+                {filter.label}: {filter.value}
+              </span>
+            ))}
+            {hasActiveSourceLedgerFilters(sourceFilters) ? (
+              <button
+                className="inline-flex min-h-10 items-center rounded-md border border-border px-3 py-2 text-sm font-medium text-syneos-teal hover:bg-background focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-syneos-teal"
+                onClick={() => setSourceFilters(defaultSourceLedgerFilters)}
+                type="button"
+              >
+                Clear filters
+              </button>
+            ) : null}
+          </div>
+
+          <p
+            aria-label="Source result count"
+            className="mt-3 text-sm text-muted-foreground"
+            role={
+              statusMessage || hasOnlyRestrictedDetails ? undefined : "status"
+            }
+          >
+            {sourceResultSummary}
+          </p>
+        </section>
+      ) : null}
+
+      {viewState === "ready" &&
+      visibleSources.length > 0 &&
+      filteredSources.length === 0 ? (
+        <div
+          className="rounded-md border border-border bg-card px-4 py-3 text-sm text-muted-foreground"
+          role="status"
+        >
+          No sources match current filters. Clear filters or adjust your search.
+        </div>
+      ) : null}
+
+      {filteredSources.length > 0 ? (
         <div aria-label="Registered source records" className="grid gap-3">
-          {visibleSources.map((source) => {
+          {filteredSources.map((source) => {
             const sourceRecord = sourceById.get(source.sourceKey);
             const canRunIngestion =
               isAdmin &&

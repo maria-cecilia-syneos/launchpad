@@ -33,6 +33,34 @@ test("shows registered Source Ledger records on the Sources surface", async ({
   await expect(page.getByText("Ingestion: Stale")).toBeVisible();
 });
 
+test("searches, filters, and inspects Source Ledger details", async ({
+  page,
+}) => {
+  await page.goto("/sources");
+
+  await page.getByRole("searchbox", { name: /search sources/i })
+    .fill("salesforce");
+  await expect(
+    page.getByRole("status", { name: /source result count/i }),
+  ).toContainText("1 of 8 source records match current filters");
+  await expect(page.getByText("CARDIOMAX Salesforce Launch Context"))
+    .toBeVisible();
+  await expect(page.getByText("CARDIOMAX Launch Plan")).toHaveCount(0);
+
+  await page.getByRole("button", { name: /clear filters/i }).click();
+  await page.getByRole("combobox", { name: /freshness filter/i })
+    .selectOption("stale");
+  await expect(page.getByText("CARDIOMAX Smartsheet Status")).toBeVisible();
+  await expect(page.getByText("Matched freshness.")).toBeVisible();
+
+  await page.getByRole("button", {
+    name: /show details for cardiomax smartsheet status/i,
+  }).click();
+  await expect(page.getByText(/source id:/i)).toBeVisible();
+  await expect(page.getByText(/registered:/i)).toBeVisible();
+  await expect(page.getByText(/next useful action:/i)).toBeVisible();
+});
+
 test("hides source registration and redacts restricted details for non-admin users", async ({
   page,
 }) => {
@@ -51,4 +79,14 @@ test("hides source registration and redacts restricted details for non-admin use
     page.getByText("Restricted source details are hidden."),
   ).toBeVisible();
   await expect(page.getByText("Source system: Restricted")).toBeVisible();
+
+  await page.getByRole("searchbox", { name: /search sources/i })
+    .fill("commercial");
+  await expect(
+    page.getByRole("status", { name: /source result count/i }),
+  ).toContainText("0 of 8 source records match current filters");
+  await expect(
+    page.getByText("Restricted commercial launch plan"),
+  ).toHaveCount(0);
+  await expect(page.getByText("Commercial Strategy")).toHaveCount(0);
 });

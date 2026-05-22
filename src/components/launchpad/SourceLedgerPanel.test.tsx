@@ -319,6 +319,139 @@ describe("SourceLedgerPanel", () => {
     );
   });
 
+  it("searches, filters, summarizes, and clears Source Ledger results", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <SourceLedgerPanel
+        initialSources={createPrototypeSourceRecords()}
+        session={adminSession}
+      />,
+    );
+
+    await user.type(
+      screen.getByRole("searchbox", { name: /search sources/i }),
+      "salesforce",
+    );
+
+    expect(screen.getByRole("status", { name: /source result count/i }))
+      .toHaveTextContent(/1 of 8 source records match current filters/i);
+    expect(screen.getByText(/search: salesforce/i)).toBeVisible();
+    expect(screen.getByRole("article", {
+      name: /cardiomax salesforce launch context/i,
+    })).toBeVisible();
+    expect(screen.queryByRole("article", {
+      name: /cardiomax launch plan/i,
+    })).not.toBeInTheDocument();
+
+    await user.clear(screen.getByRole("searchbox", { name: /search sources/i }));
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: /system filter/i }),
+      "asset",
+    );
+
+    expect(
+      within(
+        screen.getByRole("region", {
+          name: /search and filter source ledger/i,
+        }),
+      ).getByText(/source system: asset/i),
+    ).toBeVisible();
+    expect(screen.getByRole("article", {
+      name: /cardiomax approved asset library/i,
+    })).toBeVisible();
+    expect(screen.queryByRole("article", {
+      name: /cardiomax deployment handoff/i,
+    })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /clear filters/i }));
+
+    expect(screen.getByRole("status", { name: /source result count/i }))
+      .toHaveTextContent(/8 source records available/i);
+    expect(screen.getByRole("article", {
+      name: /cardiomax deployment handoff/i,
+    })).toBeVisible();
+  });
+
+  it("inspects normalized source details with match rationale and next action", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <SourceLedgerPanel
+        initialSources={createPrototypeSourceRecords()}
+        session={adminSession}
+      />,
+    );
+
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: /freshness filter/i }),
+      "stale",
+    );
+    const smartsheetResult = screen.getByRole("article", {
+      name: /cardiomax smartsheet status/i,
+    });
+
+    expect(smartsheetResult).toHaveTextContent(/matched freshness/i);
+    await user.click(
+      within(smartsheetResult).getByRole("button", {
+        name: /show details for cardiomax smartsheet status/i,
+      }),
+    );
+
+    expect(within(smartsheetResult).getByText(/source id:/i)).toBeVisible();
+    expect(within(smartsheetResult).getByText(/object id:/i)).toBeVisible();
+    expect(within(smartsheetResult).getByText(/registered:/i)).toBeVisible();
+    expect(within(smartsheetResult).getByText(/related launch:/i)).toBeVisible();
+    expect(within(smartsheetResult).getByText(/next useful action:/i))
+      .toBeVisible();
+    expect(smartsheetResult).toHaveTextContent(
+      /refresh this source or verify the latest source freshness/i,
+    );
+    expect(smartsheetResult).not.toHaveTextContent(/rawGraphPayload/i);
+  });
+
+  it("keeps search and details redaction-safe for non-admin users", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <SourceLedgerPanel
+        initialSources={createPrototypeSourceRecords()}
+        session={defaultWorkspaceSession}
+      />,
+    );
+
+    await user.type(
+      screen.getByRole("searchbox", { name: /search sources/i }),
+      "commercial",
+    );
+
+    expect(screen.getByRole("status", { name: /source result count/i }))
+      .toHaveTextContent(/0 of 8 source records match current filters/i);
+    expect(screen.getByText(/no sources match current filters/i)).toBeVisible();
+    expect(screen.queryByText(/restricted commercial launch plan/i))
+      .not.toBeInTheDocument();
+    expect(screen.queryByText(/commercial strategy/i)).not.toBeInTheDocument();
+
+    await user.clear(screen.getByRole("searchbox", { name: /search sources/i }));
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: /access filter/i }),
+      "restricted",
+    );
+    const restrictedResult = screen.getByRole("article", {
+      name: /restricted source/i,
+    });
+    await user.click(
+      within(restrictedResult).getByRole("button", {
+        name: /show details for restricted source/i,
+      }),
+    );
+
+    expect(restrictedResult).toHaveTextContent(/source title: restricted source/i);
+    expect(restrictedResult).toHaveTextContent(/next useful action:/i);
+    expect(restrictedResult).not.toHaveTextContent(/restricted commercial/i);
+    expect(restrictedResult).not.toHaveTextContent(/commercial strategy/i);
+  });
+
   it("shows empty, loading, and error states", () => {
     const { rerender } = render(
       <SourceLedgerPanel initialSources={[]} session={adminSession} />,
