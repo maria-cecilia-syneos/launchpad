@@ -36,6 +36,11 @@ export const suggestedLaunchQuestions: SuggestedLaunchQuestion[] = [
     question: "Who owns the open handoffs for this launch?",
   },
   {
+    id: "handoff-readiness",
+    label: "Review handoff readiness",
+    question: "What is the handoff readiness status?",
+  },
+  {
     id: "deadlines",
     label: "Check upcoming deadlines",
     question: "What deadlines should the launch team watch next?",

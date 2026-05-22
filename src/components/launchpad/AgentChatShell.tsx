@@ -29,11 +29,23 @@ import {
   shouldSimulateError,
   suggestedLaunchQuestions,
 } from "@/domain/agent";
+import {
+  buildHandoffSourceBackedAnswer,
+  createPrototypeHandoffAuditEvents,
+  isHandoffQuestion,
+} from "@/domain/handoff-answer";
+import {
+  createPrototypeHandoffArtifacts,
+  type HandoffArtifact,
+  type HandoffAuditEvent,
+} from "@/domain/handoff";
 import type { WorkspaceSession } from "@/domain/workspace";
 
 import { SourceBackedAnswerCard } from "./SourceBackedAnswerCard";
 
 type AgentChatShellProps = {
+  handoffArtifacts?: HandoffArtifact[];
+  handoffAuditEvents?: HandoffAuditEvent[];
   session: WorkspaceSession;
   onAuditEventsRecorded?: (events: AuditEventRecord[]) => void;
   onFeedbackRecorded?: (feedback: AnswerFeedbackRecord) => void;
@@ -49,6 +61,8 @@ const statusLabels: Record<AgentConversationStatus, string> = {
 };
 
 export function AgentChatShell({
+  handoffArtifacts,
+  handoffAuditEvents,
   onAuditEventsRecorded,
   onFeedbackRecorded,
   session,
@@ -76,6 +90,16 @@ export function AgentChatShell({
   const canSubmit = question.trim().length > 0;
   const hasFollowUpContext = Boolean(priorQuestion);
   const launchName = session.launch.name;
+  const activeHandoffArtifacts = useMemo(
+    () => handoffArtifacts ?? createPrototypeHandoffArtifacts(),
+    [handoffArtifacts],
+  );
+  const activeHandoffAuditEvents = useMemo(
+    () =>
+      handoffAuditEvents ??
+      createPrototypeHandoffAuditEvents(activeHandoffArtifacts),
+    [activeHandoffArtifacts, handoffAuditEvents],
+  );
 
   const conversationMessages = useMemo(() => messages, [messages]);
 
@@ -190,11 +214,19 @@ export function AgentChatShell({
     }, 300);
 
     scheduleStatus(() => {
-      const answer = buildPrototypeAnswer(
-        submittedQuestion,
-        launchName,
-        previousQuestion,
-      );
+      const answer = isHandoffQuestion(submittedQuestion, previousQuestion)
+        ? buildHandoffSourceBackedAnswer({
+            artifacts: activeHandoffArtifacts,
+            auditEvents: activeHandoffAuditEvents,
+            previousQuestion,
+            question: submittedQuestion,
+            session,
+          })
+        : buildPrototypeAnswer(
+            submittedQuestion,
+            launchName,
+            previousQuestion,
+          );
 
       setLiveStatus("answered", `for ${launchName}.`);
       recordAuditEvents(

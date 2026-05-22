@@ -4,6 +4,11 @@ import { describe, expect, it, vi } from "vitest";
 
 import { AgentChatShell } from "./AgentChatShell";
 import { defaultWorkspaceSession } from "@/domain/workspace";
+import {
+  createPrototypeHandoffArtifacts,
+  type HandoffArtifact,
+  type HandoffSupportingSource,
+} from "@/domain/handoff";
 
 describe("AgentChatShell", () => {
   it("accepts a launch question with visible submit and announces retrieval", async () => {
@@ -13,11 +18,12 @@ describe("AgentChatShell", () => {
 
     await user.type(
       screen.getByRole("textbox", { name: /ask launchpad/i }),
-      "Who owns the deployment handoff?",
+      "Which launch commitments are due this week?",
     );
     await user.click(screen.getByRole("button", { name: /ask launchpad/i }));
 
-    expect(screen.getByText("Who owns the deployment handoff?")).toBeVisible();
+    expect(screen.getByText("Which launch commitments are due this week?"))
+      .toBeVisible();
     expect(screen.getByRole("status")).toHaveTextContent(
       /retrieving launch context for cardiomax launch/i,
     );
@@ -51,7 +57,7 @@ describe("AgentChatShell", () => {
 
     await user.type(
       screen.getByRole("textbox", { name: /ask launchpad/i }),
-      "Who owns the deployment handoff?",
+      "Which launch commitments are due this week?",
     );
     await user.click(screen.getByRole("button", { name: /ask launchpad/i }));
 
@@ -209,7 +215,7 @@ describe("AgentChatShell", () => {
 
     await user.type(
       screen.getByRole("textbox", { name: /ask launchpad/i }),
-      "Who owns the deployment handoff?",
+      "Which launch commitments are due this week?",
     );
     await user.click(screen.getByRole("button", { name: /ask launchpad/i }));
     await screen.findByRole("article", { name: /source-backed answer/i });
@@ -276,6 +282,128 @@ describe("AgentChatShell", () => {
       .not.toBeInTheDocument();
   });
 
+  it("answers handoff readiness questions from the source-backed handoff artifact", async () => {
+    const user = userEvent.setup();
+
+    render(<AgentChatShell session={defaultWorkspaceSession} />);
+
+    await user.type(
+      screen.getByRole("textbox", { name: /ask launchpad/i }),
+      "What is the handoff readiness status?",
+    );
+    await user.click(screen.getByRole("button", { name: /ask launchpad/i }));
+
+    await screen.findByText(/handoff readiness needs attention/i);
+    expect(screen.getByText(/state: missing information/i)).toBeVisible();
+    expect(screen.getByText(/assumptions is stale/i)).toBeVisible();
+    expect(
+      screen.getByRole("link", {
+        name: /^citation 1: digital handoff artifact from handoff artifact$/i,
+      }),
+    ).toBeVisible();
+  });
+
+  it("keeps generic asset readiness questions out of the handoff route", async () => {
+    const user = userEvent.setup();
+
+    render(<AgentChatShell session={defaultWorkspaceSession} />);
+
+    await user.type(
+      screen.getByRole("textbox", { name: /ask launchpad/i }),
+      "Are the launch assets ready?",
+    );
+    await user.click(screen.getByRole("button", { name: /ask launchpad/i }));
+
+    await screen.findByRole("link", {
+      name: /^citation 1: cardiomax launch plan from sharepoint$/i,
+    });
+    expect(screen.queryByText(/handoff readiness needs attention/i))
+      .not.toBeInTheDocument();
+    expect(screen.queryByText(/state: missing information/i))
+      .not.toBeInTheDocument();
+  });
+
+  it("answers handoff change-history questions with timestamps and actors", async () => {
+    const user = userEvent.setup();
+
+    render(<AgentChatShell session={defaultWorkspaceSession} />);
+
+    await user.type(
+      screen.getByRole("textbox", { name: /ask launchpad/i }),
+      "What changed since the prior handoff review?",
+    );
+    await user.click(screen.getByRole("button", { name: /ask launchpad/i }));
+
+    await screen.findByText(/handoff change history/i);
+    expect(screen.getByText(/state: partial confidence/i)).toBeVisible();
+    expect(screen.getByText(/2026-05-21T09:00:00.000Z/i)).toBeVisible();
+    expect(screen.getByText(/state: superseded/i)).toBeVisible();
+    expect(screen.getAllByText(/by launch operations/i).length).toBeGreaterThan(
+      0,
+    );
+  });
+
+  it("redacts restricted handoff answers for non-admin sessions", async () => {
+    const user = userEvent.setup();
+    const restrictedSource: HandoffSupportingSource = {
+      accessState: "restricted",
+      approvalState: "restricted",
+      freshnessState: "restricted",
+      provenanceLabel: "Source Ledger",
+      sourceId: "src-secret-scope",
+      title: "Secret Scope Source",
+    };
+    const prototypeArtifact = createPrototypeHandoffArtifacts()[0];
+    const restrictedArtifact: HandoffArtifact = {
+      ...prototypeArtifact,
+      structuredContent: {
+        ...prototypeArtifact.structuredContent,
+        scope: {
+          ...prototypeArtifact.structuredContent.scope,
+          supportingSources: [restrictedSource],
+          text: "Secret scope text",
+        },
+      },
+    };
+
+    render(
+      <AgentChatShell
+        handoffArtifacts={[restrictedArtifact]}
+        session={defaultWorkspaceSession}
+      />,
+    );
+
+    await user.type(
+      screen.getByRole("textbox", { name: /ask launchpad/i }),
+      "What scope is in the handoff?",
+    );
+    await user.click(screen.getByRole("button", { name: /ask launchpad/i }));
+
+    await screen.findByText(/state: access restricted/i);
+    expect(screen.getByRole("heading", { name: /access restricted/i }))
+      .toBeVisible();
+    expect(screen.getByText(/restricted source details are hidden/i))
+      .toBeVisible();
+    expect(screen.queryByText(/secret scope source/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/secret scope text/i)).not.toBeInTheDocument();
+  });
+
+  it("returns no reliable source for unverified handoff claims", async () => {
+    const user = userEvent.setup();
+
+    render(<AgentChatShell session={defaultWorkspaceSession} />);
+
+    await user.type(
+      screen.getByRole("textbox", { name: /ask launchpad/i }),
+      "What is the unverified handoff rumor?",
+    );
+    await user.click(screen.getByRole("button", { name: /ask launchpad/i }));
+
+    await screen.findByText(/state: no reliable source/i);
+    expect(screen.getByText(/no approved handoff artifact/i)).toBeVisible();
+    expect(screen.queryByText(/the rumor is true/i)).not.toBeInTheDocument();
+  });
+
   it("does not submit Enter while IME composition is active", () => {
     render(<AgentChatShell session={defaultWorkspaceSession} />);
 
@@ -303,6 +431,11 @@ describe("AgentChatShell", () => {
     expect(
       within(prompts).getByRole("button", {
         name: /show commitments due this week/i,
+      }),
+    ).toBeVisible();
+    expect(
+      within(prompts).getByRole("button", {
+        name: /review handoff readiness/i,
       }),
     ).toBeVisible();
     expect(

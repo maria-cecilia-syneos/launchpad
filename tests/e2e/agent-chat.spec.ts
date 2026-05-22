@@ -12,13 +12,15 @@ test("accepts a natural-language launch question on the Agent surface", async ({
 
   await page
     .getByRole("textbox", { name: /ask launchpad/i })
-    .fill("Who owns the deployment handoff?");
+    .fill("Which launch commitments are due this week?");
   await page.getByRole("button", { name: /ask launchpad/i }).click();
 
   await expect(
     page
       .getByRole("log", { name: "Agent conversation" })
-      .getByText("Who owns the deployment handoff?", { exact: true }),
+      .getByText("Which launch commitments are due this week?", {
+        exact: true,
+      }),
   ).toBeVisible();
   await expect(page.getByRole("status")).toContainText(
     "Retrieving launch context for CARDIOMAX Launch",
@@ -68,7 +70,7 @@ test("submits answer feedback without disrupting the chat session", async ({
 
   await page
     .getByRole("textbox", { name: /ask launchpad/i })
-    .fill("Who owns the deployment handoff?");
+    .fill("Which launch commitments are due this week?");
   await page.getByRole("button", { name: /ask launchpad/i }).click();
 
   await expect(
@@ -92,6 +94,43 @@ test("submits answer feedback without disrupting the chat session", async ({
   await expect(
     page
       .getByRole("log", { name: "Agent conversation" })
-      .getByText("Who owns the deployment handoff?", { exact: true }),
+      .getByText("Which launch commitments are due this week?", {
+        exact: true,
+      }),
   ).toBeVisible();
+});
+
+test("answers source-backed handoff readiness questions", async ({ page }) => {
+  await page.goto("/agent");
+
+  await page
+    .getByRole("textbox", { name: /ask launchpad/i })
+    .fill("What is the handoff readiness status?");
+  await page.getByRole("button", { name: /ask launchpad/i }).click();
+
+  await expect(page.getByText(/Handoff readiness needs attention/i))
+    .toBeVisible();
+  await expect(page.getByText(/State: Missing information/i)).toBeVisible();
+  await expect(page.getByText(/Assumptions is Stale/i)).toBeVisible();
+  await expect(
+    page.getByRole("link", {
+      name: /^citation 1: digital handoff artifact from handoff artifact$/i,
+    }),
+  ).toBeVisible();
+});
+
+test("answers handoff change-history questions with actors and timestamps", async ({
+  page,
+}) => {
+  await page.goto("/agent");
+
+  await page
+    .getByRole("textbox", { name: /ask launchpad/i })
+    .fill("What changed since the prior handoff review?");
+  await page.getByRole("button", { name: /ask launchpad/i }).click();
+
+  await expect(page.getByText(/Handoff change history/i)).toBeVisible();
+  await expect(page.getByText(/State: Partial confidence/i)).toBeVisible();
+  await expect(page.getByText(/2026-05-21T09:00:00.000Z/i)).toBeVisible();
+  await expect(page.getByText(/State: Superseded/i)).toBeVisible();
 });

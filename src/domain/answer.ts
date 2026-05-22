@@ -12,6 +12,7 @@ export type AnswerConfidence = "high" | "medium" | "low" | "none";
 export type SourceAccessState = "authorized" | "restricted";
 
 export type SourceSystem =
+  | "Handoff artifact"
   | "SharePoint"
   | "Smartsheet"
   | "ECRM/Salesforce"
