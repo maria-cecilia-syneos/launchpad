@@ -1,27 +1,45 @@
 "use client";
 
-import { CheckCircle2, ClipboardCheck, History, Save, Send } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  ClipboardCheck,
+  History,
+  MessageSquareWarning,
+  RotateCcw,
+  Save,
+  Send,
+} from "lucide-react";
 import { useMemo, useState } from "react";
 
 import {
+  acceptHandoff,
   createPrototypeHandoffArtifacts,
+  getHandoffCompletenessReview,
   getHandoffResponsibleOwner,
   handoffHistoryStateLabels,
+  handoffReviewAreaLabels,
+  handoffReviewAreaOrder,
+  handoffReviewStateLabels,
   handoffSectionLabels,
   handoffSectionOrder,
   handoffStatusLabels,
   markHandoffReadyForReview,
   prototypeHandoffSupportingSources,
+  requestHandoffClarification,
   requestReusableHandoff,
+  returnHandoffForClarification,
   saveHandoffStructuredContent,
   validateHandoffRequest,
   validateHandoffReadiness,
   type HandoffArtifact,
   type HandoffAuditEvent,
+  type HandoffCompletenessReview,
   type HandoffContentInput,
   type HandoffHistoryEntry,
   type HandoffReadinessValidationError,
   type HandoffRequestInput,
+  type HandoffReviewArea,
   type HandoffSectionKey,
   type HandoffSectionState,
   type HandoffStructuredContent,
@@ -57,6 +75,10 @@ type SectionFormState = {
 };
 
 type StructuredContentFormState = Record<HandoffSectionKey, SectionFormState>;
+type ClarificationFormState = {
+  area: HandoffReviewArea;
+  question: string;
+};
 
 const initialFormState: FormState = {
   purpose: "",
@@ -89,6 +111,11 @@ const sectionStateOptions: HandoffSectionState[] = [
   "conflicting",
 ];
 
+const initialClarificationState: ClarificationFormState = {
+  area: "openQuestions",
+  question: "",
+};
+
 export function HandoffRequestPanel({
   initialArtifacts = createPrototypeHandoffArtifacts(),
   onHandoffAuditEvent,
@@ -99,6 +126,8 @@ export function HandoffRequestPanel({
   const [contentState, setContentState] = useState<StructuredContentFormState>(
     () => buildContentFormState(initialArtifacts[0] ?? null),
   );
+  const [clarificationState, setClarificationState] =
+    useState<ClarificationFormState>(initialClarificationState);
   const [validationErrors, setValidationErrors] = useState<
     HandoffValidationError[]
   >([]);
@@ -106,6 +135,7 @@ export function HandoffRequestPanel({
     HandoffReadinessValidationError[]
   >([]);
   const [readinessAlert, setReadinessAlert] = useState("");
+  const [reviewAlert, setReviewAlert] = useState("");
   const [latestArtifact, setLatestArtifact] = useState<HandoffArtifact | null>(
     initialArtifacts[0] ?? null,
   );
@@ -128,6 +158,11 @@ export function HandoffRequestPanel({
       source.sourceId,
       source,
     ])),
+    [latestArtifact],
+  );
+  const completenessReview = useMemo(
+    () =>
+      latestArtifact ? getHandoffCompletenessReview(latestArtifact) : null,
     [latestArtifact],
   );
   const canViewRestrictedSources = session.user.role === "admin";
@@ -185,6 +220,16 @@ export function HandoffRequestPanel({
     });
   }
 
+  function updateClarification<Key extends keyof ClarificationFormState>(
+    key: Key,
+    value: ClarificationFormState[Key],
+  ) {
+    setClarificationState((current) => ({
+      ...current,
+      [key]: value,
+    }));
+  }
+
   function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -213,6 +258,7 @@ export function HandoffRequestPanel({
     setContentState(buildContentFormState(result.artifact));
     setReadinessAlert("");
     setReadinessErrors([]);
+    setReviewAlert("");
     setLatestAuditEvent(result.auditEvent);
     setStatusMessage(
       `${formatActionLabel(result.action)} reusable Digital Handoff Artifact ${
@@ -241,6 +287,7 @@ export function HandoffRequestPanel({
     setContentState(buildContentFormState(result.artifact));
     setReadinessErrors(validateHandoffReadiness(result.artifact));
     setReadinessAlert("");
+    setReviewAlert("");
     setLatestAuditEvent(result.auditEvent);
     setStatusMessage(
       `Saved draft Digital Handoff Artifact ${result.artifact.handoffId}.`,
@@ -288,12 +335,121 @@ export function HandoffRequestPanel({
     setContentState(buildContentFormState(ready.artifact));
     setReadinessAlert("");
     setReadinessErrors([]);
+    setReviewAlert("");
     setLatestAuditEvent(ready.auditEvent);
     setStatusMessage(
       `Marked Digital Handoff Artifact ready for review ${ready.artifact.handoffId}.`,
     );
     onHandoffAuditEvent?.(draft.auditEvent);
     onHandoffAuditEvent?.(ready.auditEvent);
+  }
+
+  function handleRequestClarification(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!latestArtifact || !completenessReview) {
+      return;
+    }
+
+    const question = clarificationState.question.trim();
+
+    if (!question) {
+      setReviewAlert("Clarification question is required.");
+      setStatusMessage("");
+      return;
+    }
+
+    const reviewItem = completenessReview.items.find(
+      (item) => item.area === clarificationState.area,
+    );
+    const result = requestHandoffClarification(
+      artifacts,
+      latestArtifact.handoffId,
+      {
+        area: clarificationState.area,
+        owner: reviewItem?.ownerRoute,
+        question,
+        sourceRoute: reviewItem?.sourceRoute,
+        stakeholderRoute: `${latestArtifact.sendingTeam} -> ${latestArtifact.receivingTeam}`,
+      },
+      {
+        actorId: session.user.name,
+      },
+    );
+    const latestRequest =
+      result.artifact.clarificationRequests[
+        result.artifact.clarificationRequests.length - 1
+      ];
+
+    setArtifacts(result.artifacts);
+    setLatestArtifact(result.artifact);
+    setClarificationState((current) => ({
+      ...current,
+      question: "",
+    }));
+    setReadinessAlert("");
+    setReviewAlert("");
+    setLatestAuditEvent(result.auditEvent);
+    setStatusMessage(
+      `Requested clarification on ${
+        handoffReviewAreaLabels[latestRequest?.area ?? clarificationState.area]
+      } for Digital Handoff Artifact ${result.artifact.handoffId}.`,
+    );
+    onHandoffAuditEvent?.(result.auditEvent);
+  }
+
+  function handleAcceptHandoff() {
+    if (!latestArtifact) {
+      return;
+    }
+
+    try {
+      const result = acceptHandoff(artifacts, latestArtifact.handoffId, {
+        actorId: session.user.name,
+      });
+
+      setArtifacts(result.artifacts);
+      setLatestArtifact(result.artifact);
+      setReadinessAlert("");
+      setReviewAlert("");
+      setLatestAuditEvent(result.auditEvent);
+      setStatusMessage(
+        `Accepted Digital Handoff Artifact ${result.artifact.handoffId}.`,
+      );
+      onHandoffAuditEvent?.(result.auditEvent);
+    } catch (error) {
+      setReviewAlert(getErrorMessage(error));
+      setStatusMessage("");
+    }
+  }
+
+  function handleReturnForClarification() {
+    if (!latestArtifact) {
+      return;
+    }
+
+    try {
+      const result = returnHandoffForClarification(
+        artifacts,
+        latestArtifact.handoffId,
+        {
+          actorId: session.user.name,
+        },
+      );
+
+      setArtifacts(result.artifacts);
+      setLatestArtifact(result.artifact);
+      setReadinessAlert("");
+      setReviewAlert("");
+      setLatestAuditEvent(result.auditEvent);
+      setStatusMessage(
+        `Returned Digital Handoff Artifact for clarification ${result.artifact.handoffId}.`,
+      );
+      onHandoffAuditEvent?.(result.auditEvent);
+    } catch (error) {
+      setReviewAlert(getErrorMessage(error));
+      setStatusMessage("");
+    }
   }
 
   return (
@@ -483,6 +639,20 @@ export function HandoffRequestPanel({
           onUpdateSection={updateContentSection}
           readinessAlert={readinessAlert}
           readinessErrorByField={readinessErrorByField}
+        />
+      ) : null}
+
+      {latestArtifact && completenessReview ? (
+        <HandoffCompletenessPanel
+          artifact={latestArtifact}
+          canViewRestrictedSources={canViewRestrictedSources}
+          clarificationState={clarificationState}
+          onAccept={handleAcceptHandoff}
+          onRequestClarification={handleRequestClarification}
+          onReturnForClarification={handleReturnForClarification}
+          onUpdateClarification={updateClarification}
+          review={completenessReview}
+          reviewAlert={reviewAlert}
         />
       ) : null}
 
@@ -679,6 +849,244 @@ function HandoffContentWorkspace({
           );
         })}
       </div>
+    </section>
+  );
+}
+
+function HandoffCompletenessPanel({
+  artifact,
+  canViewRestrictedSources,
+  clarificationState,
+  onAccept,
+  onRequestClarification,
+  onReturnForClarification,
+  onUpdateClarification,
+  review,
+  reviewAlert,
+}: {
+  artifact: HandoffArtifact;
+  canViewRestrictedSources: boolean;
+  clarificationState: ClarificationFormState;
+  onAccept: () => void;
+  onRequestClarification: (event: React.FormEvent<HTMLFormElement>) => void;
+  onReturnForClarification: () => void;
+  onUpdateClarification: <Key extends keyof ClarificationFormState>(
+    key: Key,
+    value: ClarificationFormState[Key],
+  ) => void;
+  review: HandoffCompletenessReview;
+  reviewAlert: string;
+}) {
+  const latestReviewDecision =
+    artifact.reviewDecision ??
+    artifact.reviewDecisions[artifact.reviewDecisions.length - 1];
+
+  return (
+    <section
+      aria-label="Handoff Completeness Panel"
+      className="rounded-lg border border-border bg-card p-5 shadow-sm"
+    >
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <p className="mb-2 inline-flex items-center gap-2 text-sm font-medium text-syneos-teal">
+            <MessageSquareWarning aria-hidden="true" className="h-4 w-4" />
+            Receiving-team review
+          </p>
+          <h3 className="font-semibold">Handoff completeness</h3>
+          <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
+            Review status: {getReviewStatusText(artifact, review)}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            className="inline-flex min-h-10 items-center gap-2 rounded-md bg-syneos-teal px-3 py-2 text-sm font-semibold text-white hover:bg-syneos-dark-gray focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-syneos-orange"
+            onClick={onAccept}
+            type="button"
+          >
+            <CheckCircle2 aria-hidden="true" className="h-4 w-4" />
+            Accept handoff
+          </button>
+          <button
+            className="inline-flex min-h-10 items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm font-semibold hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-syneos-teal"
+            onClick={onReturnForClarification}
+            type="button"
+          >
+            <RotateCcw aria-hidden="true" className="h-4 w-4" />
+            Return for clarification
+          </button>
+        </div>
+      </div>
+
+      {reviewAlert ? (
+        <div
+          className="mt-4 rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm"
+          role="alert"
+        >
+          {reviewAlert}
+        </div>
+      ) : null}
+
+      {latestReviewDecision ? (
+        <section
+          aria-label="Review decision"
+          className="mt-4 rounded-md border border-border bg-background px-4 py-3 text-sm"
+        >
+          <p className="font-semibold">
+            Decision: {handoffStatusLabels[latestReviewDecision.decision]}
+          </p>
+          <p className="mt-1 text-muted-foreground">
+            Actor: {latestReviewDecision.actorId}; Timestamp:{" "}
+            {latestReviewDecision.occurredAt}
+          </p>
+          {latestReviewDecision.requiredUpdates.length > 0 ? (
+            <ul className="mt-2 grid gap-1">
+              {latestReviewDecision.requiredUpdates.map((update) => (
+                <li key={update}>{update}</li>
+              ))}
+            </ul>
+          ) : null}
+          {artifact.reviewDecisions.length > 0 ? (
+            <ol className="mt-3 grid gap-1 text-muted-foreground">
+              {artifact.reviewDecisions.map((decision) => (
+                <li key={`${decision.decision}-${decision.occurredAt}`}>
+                  Decision history: {handoffStatusLabels[decision.decision]} by{" "}
+                  {decision.actorId} at {decision.occurredAt}
+                </li>
+              ))}
+            </ol>
+          ) : null}
+        </section>
+      ) : null}
+
+      <div className="mt-4 grid gap-3 lg:grid-cols-2">
+        {review.items.map((item) => (
+          <article
+            className="rounded-md border border-border bg-background px-4 py-3 text-sm"
+            key={item.area}
+          >
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+              <h4 className="font-semibold">{item.label}</h4>
+              <span className="font-medium">
+                State: {handoffReviewStateLabels[item.state]}
+              </span>
+            </div>
+            <p className="mt-2">{item.reason}</p>
+            <dl className="mt-2 grid gap-1 text-muted-foreground">
+              <ReviewTerm label="Owner route" value={item.ownerRoute} />
+              <ReviewTerm
+                label="Source route"
+                value={item.sourceRoute ?? "No source route available"}
+              />
+              {item.requiredUpdate ? (
+                <ReviewTerm
+                  label="Required update"
+                  value={item.requiredUpdate}
+                />
+              ) : null}
+            </dl>
+            <SectionSourceList
+              canViewRestrictedSources={canViewRestrictedSources}
+              sources={item.evidence}
+            />
+          </article>
+        ))}
+      </div>
+
+      {review.requiredUpdates.length > 0 ? (
+        <section aria-label="Required updates" className="mt-4">
+          <h4 className="text-sm font-semibold">Required updates</h4>
+          <ul className="mt-2 grid gap-2 text-sm">
+            {review.requiredUpdates.map((update) => (
+              <li
+                className="rounded-md border border-border bg-background px-3 py-2"
+                key={update}
+              >
+                <AlertTriangle
+                  aria-hidden="true"
+                  className="mr-2 inline h-4 w-4 text-syneos-orange"
+                />
+                {update}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      <section aria-label="Clarification requests" className="mt-4">
+        <h4 className="text-sm font-semibold">Clarification requests</h4>
+        {artifact.clarificationRequests.length > 0 ? (
+          <ol className="mt-2 grid gap-2 text-sm">
+            {artifact.clarificationRequests.map((request) => (
+              <li
+                className="rounded-md border border-border bg-background px-3 py-2"
+                key={request.clarificationId}
+              >
+                <p className="font-medium">
+                  {handoffReviewAreaLabels[request.area]}: {request.question}
+                </p>
+                <p className="mt-1 text-muted-foreground">
+                  Owner: {request.owner}; Status: {request.status}; Requested
+                  by: {request.requestedBy}; Timestamp: {request.requestedAt};
+                  Source route: {request.sourceRoute ?? "Not provided"}
+                  {request.resolvedAt
+                    ? `; Resolved by: ${request.resolvedBy}; Resolved at: ${request.resolvedAt}`
+                    : null}
+                </p>
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <p className="mt-2 text-sm text-muted-foreground">
+            No clarification requests yet.
+          </p>
+        )}
+      </section>
+
+      <form
+        aria-label="Request handoff clarification"
+        className="mt-4 grid gap-3 rounded-md border border-border bg-background p-4"
+        onSubmit={onRequestClarification}
+      >
+        <div className="grid gap-3 md:grid-cols-[16rem_minmax(0,1fr)]">
+          <label className="grid content-start gap-1 text-sm font-medium">
+            Clarification area
+            <select
+              className="min-h-10 rounded-md border border-input bg-card px-3 py-2 text-sm"
+              onChange={(event) =>
+                onUpdateClarification(
+                  "area",
+                  event.target.value as HandoffReviewArea,
+                )
+              }
+              value={clarificationState.area}
+            >
+              {handoffReviewAreaOrder.map((area) => (
+                <option key={area} value={area}>
+                  {handoffReviewAreaLabels[area]}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="grid gap-1 text-sm font-medium">
+            Clarification question
+            <textarea
+              className="min-h-20 rounded-md border border-input bg-card px-3 py-2 text-sm"
+              onChange={(event) =>
+                onUpdateClarification("question", event.target.value)
+              }
+              placeholder="Ask for the missing, stale, or conflicting context."
+              value={clarificationState.question}
+            />
+          </label>
+        </div>
+        <button
+          className="inline-flex min-h-10 w-fit items-center gap-2 rounded-md bg-syneos-orange px-3 py-2 text-sm font-semibold text-white hover:bg-syneos-dark-gray focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-syneos-teal"
+          type="submit"
+        >
+          <MessageSquareWarning aria-hidden="true" className="h-4 w-4" />
+          Request clarification
+        </button>
+      </form>
     </section>
   );
 }
@@ -977,6 +1385,17 @@ function AuditTerm({ label, value }: { label: string; value: string }) {
   );
 }
 
+function ReviewTerm({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <dt className="sr-only">{label}</dt>
+      <dd>
+        {label}: {value}
+      </dd>
+    </div>
+  );
+}
+
 function HistoryTerm({ label, value }: { label: string; value: string }) {
   return (
     <div>
@@ -1096,4 +1515,35 @@ function formatActionLabel(value: string) {
     `${firstPart.charAt(0).toUpperCase()}${firstPart.slice(1)}`,
     ...remainingParts,
   ].join(" ");
+}
+
+function getErrorMessage(error: unknown) {
+  return error instanceof Error
+    ? error.message
+    : "The handoff review action could not be completed.";
+}
+
+function getReviewStatusText(
+  artifact: HandoffArtifact,
+  review: HandoffCompletenessReview,
+) {
+  if (artifact.status === "accepted") {
+    return "Accepted";
+  }
+
+  if (artifact.status === "returned_for_clarification") {
+    return "Returned for clarification";
+  }
+
+  if (review.canAccept) {
+    return "Ready to accept";
+  }
+
+  if (review.gaps.length === 0) {
+    return "No readiness gaps; mark ready for review before acceptance";
+  }
+
+  return `${review.gaps.length} readiness gap${
+    review.gaps.length === 1 ? "" : "s"
+  }`;
 }

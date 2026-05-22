@@ -1,13 +1,18 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  acceptHandoff,
   createPrototypeHandoffArtifacts,
+  getHandoffCompletenessReview,
   getHandoffResponsibleOwner,
   markHandoffReadyForReview,
   requestReusableHandoff,
+  requestHandoffClarification,
+  returnHandoffForClarification,
   saveHandoffStructuredContent,
   validateHandoffRequest,
   validateHandoffReadiness,
+  type HandoffArtifact,
   type HandoffContentInput,
   type HandoffRequestInput,
 } from "./handoff";
@@ -386,4 +391,331 @@ describe("handoff domain", () => {
       occurredAt: "2026-05-22T13:30:00.000Z",
     });
   });
+
+  it("builds a receiving-team completeness review with specific gaps and routes", () => {
+    const [artifact] = createPrototypeHandoffArtifacts();
+
+    const review = getHandoffCompletenessReview(artifact);
+
+    expect(review.canAccept).toBe(false);
+    expect(review.items.find((item) => item.area === "scope")).toMatchObject({
+      label: "Scope",
+      state: "ready",
+    });
+    expect(review.items.find((item) => item.area === "assumptions"))
+      .toMatchObject({
+        ownerRoute: "Deployment Solutions",
+        requiredUpdate:
+          "Assumptions: refresh the source or confirm the content is still current.",
+        state: "stale",
+      });
+    expect(review.items.find((item) => item.area === "risks")).toMatchObject({
+      sourceRoute: "CARDIOMAX Smartsheet Status",
+      state: "conflicting",
+    });
+    expect(review.items.find((item) => item.area === "openQuestions"))
+      .toMatchObject({
+        reason:
+          "Open questions is missing current handoff context.",
+        state: "incomplete",
+      });
+    expect(review.items.find((item) => item.area === "supportingSources"))
+      .toMatchObject({
+        state: "ready",
+      });
+    expect(review.items.find((item) => item.area === "kickoffContext"))
+      .toMatchObject({
+        sourceRoute: "Digital Handoff Artifact request details",
+        state: "ready",
+      });
+    expect(review.requiredUpdates).toEqual(
+      expect.arrayContaining([
+        "Risks: resolve the conflicting source or owner signal.",
+      ]),
+    );
+  });
+
+  it("records clarification requests with review state and audit details", () => {
+    const [artifact] = createPrototypeHandoffArtifacts();
+
+    const result = requestHandoffClarification(
+      [artifact],
+      artifact.handoffId,
+      {
+        area: "risks",
+        owner: "Launch Operations",
+        question: "Which timeline source should Deployment Solutions trust?",
+      },
+      {
+        actorId: "Deployment Lead",
+        correlationId: "corr-clarification",
+        occurredAt: "2026-05-22T14:30:00.000Z",
+      },
+    );
+    const review = getHandoffCompletenessReview(result.artifact);
+
+    expect(result.action).toBe("clarification_requested");
+    expect(result.artifact.clarificationRequests).toEqual([
+      expect.objectContaining({
+        area: "risks",
+        owner: "Launch Operations",
+        question: "Which timeline source should Deployment Solutions trust?",
+        requestedAt: "2026-05-22T14:30:00.000Z",
+        requestedBy: "Deployment Lead",
+        sourceRoute: "CARDIOMAX Smartsheet Status",
+        status: "open",
+      }),
+    ]);
+    expect(review.items.find((item) => item.area === "risks"))
+      .toMatchObject({
+        relatedClarificationIds: [
+          result.artifact.clarificationRequests[0].clarificationId,
+        ],
+        state: "needs_clarification",
+      });
+    expect(result.auditEvent).toMatchObject({
+      actorId: "Deployment Lead",
+      correlationId: "corr-clarification",
+      eventType: "handoff.clarification_requested",
+      metadata: {
+        action: "clarification_requested",
+        receivingTeam: "Deployment Solutions",
+        sendingTeam: "Launch Operations",
+        workstreamId: "deployment-readiness",
+      },
+      occurredAt: "2026-05-22T14:30:00.000Z",
+    });
+  });
+
+  it("uses access-safe source routes for restricted review evidence", () => {
+    const artifact = createRestrictedReviewSourceArtifact();
+    const review = getHandoffCompletenessReview(artifact);
+    const riskReviewItem = review.items.find((item) => item.area === "risks");
+
+    expect(riskReviewItem).toMatchObject({
+      sourceRoute: "Restricted source",
+      state: "conflicting",
+    });
+    expect(riskReviewItem?.sourceRoute).not.toBe(
+      "Restricted commercial launch plan",
+    );
+
+    const clarified = requestHandoffClarification(
+      [artifact],
+      artifact.handoffId,
+      {
+        area: "risks",
+        question: "Which restricted source should Deployment Solutions use?",
+        sourceRoute: "Restricted commercial launch plan",
+      },
+      {
+        actorId: "Deployment Lead",
+        occurredAt: "2026-05-22T14:45:00.000Z",
+      },
+    );
+
+    expect(clarified.artifact.clarificationRequests[0]).toMatchObject({
+      sourceRoute: "Restricted source",
+    });
+  });
+
+  it("accepts only clean ready-for-review handoffs and records the decision", () => {
+    const [artifact] = createPrototypeHandoffArtifacts();
+    const blockedReady = markHandoffReadyForReview(
+      saveHandoffStructuredContent([artifact], artifact.handoffId, {
+        ...completeContent,
+        risks: {
+          ...completeContent.risks,
+          state: "conflicting",
+        },
+      }, {
+        actorId: "CeCe Rivera",
+        occurredAt: "2026-05-22T15:00:00.000Z",
+      }).artifacts,
+      artifact.handoffId,
+      {
+        actorId: "CeCe Rivera",
+        occurredAt: "2026-05-22T15:05:00.000Z",
+      },
+    );
+
+    expect(() =>
+      acceptHandoff(blockedReady.artifacts, artifact.handoffId, {
+        actorId: "Deployment Lead",
+      }),
+    ).toThrow(/resolve readiness gaps before accepting/i);
+
+    const cleanReady = markHandoffReadyForReview(
+      saveHandoffStructuredContent([artifact], artifact.handoffId, completeContent, {
+        actorId: "CeCe Rivera",
+        occurredAt: "2026-05-22T15:10:00.000Z",
+      }).artifacts,
+      artifact.handoffId,
+      {
+        actorId: "CeCe Rivera",
+        occurredAt: "2026-05-22T15:15:00.000Z",
+      },
+    );
+    const accepted = acceptHandoff(cleanReady.artifacts, artifact.handoffId, {
+      actorId: "Deployment Lead",
+      correlationId: "corr-accept",
+      occurredAt: "2026-05-22T15:20:00.000Z",
+    });
+
+    expect(accepted.artifact.status).toBe("accepted");
+    expect(accepted.artifact.reviewDecision).toEqual({
+      actorId: "Deployment Lead",
+      decision: "accepted",
+      occurredAt: "2026-05-22T15:20:00.000Z",
+      requiredUpdates: [],
+    });
+    expect(accepted.artifact.reviewDecisions).toEqual([
+      accepted.artifact.reviewDecision,
+    ]);
+    expect(accepted.auditEvent).toMatchObject({
+      correlationId: "corr-accept",
+      eventType: "handoff.accepted",
+      metadata: {
+        action: "accepted",
+        receivingTeam: "Deployment Solutions",
+        sendingTeam: "Launch Operations",
+        workstreamId: "deployment-readiness",
+      },
+    });
+  });
+
+  it("returns a handoff for clarification with required updates and audit", () => {
+    const [artifact] = createPrototypeHandoffArtifacts();
+    const clarified = requestHandoffClarification(
+      [artifact],
+      artifact.handoffId,
+      {
+        area: "openQuestions",
+        question: "Who confirms the final deployment owner?",
+      },
+      {
+        actorId: "Deployment Lead",
+        occurredAt: "2026-05-22T16:00:00.000Z",
+      },
+    );
+    const returned = returnHandoffForClarification(
+      clarified.artifacts,
+      artifact.handoffId,
+      {
+        actorId: "Deployment Lead",
+        correlationId: "corr-return",
+        occurredAt: "2026-05-22T16:05:00.000Z",
+      },
+    );
+
+    expect(returned.artifact.status).toBe("returned_for_clarification");
+    expect(returned.artifact.reviewDecision).toMatchObject({
+      actorId: "Deployment Lead",
+      decision: "returned_for_clarification",
+      occurredAt: "2026-05-22T16:05:00.000Z",
+      requiredUpdates: expect.arrayContaining([
+        "Open questions: respond to Who confirms the final deployment owner?",
+      ]),
+    });
+    expect(returned.artifact.reviewDecisions).toEqual([
+      returned.artifact.reviewDecision,
+    ]);
+    expect(returned.auditEvent).toMatchObject({
+      correlationId: "corr-return",
+      eventType: "handoff.returned",
+      metadata: {
+        action: "returned",
+        receivingTeam: "Deployment Solutions",
+        sendingTeam: "Launch Operations",
+        workstreamId: "deployment-readiness",
+      },
+      occurredAt: "2026-05-22T16:05:00.000Z",
+    });
+  });
+
+  it("resolves clarification requests after updates and preserves decision history", () => {
+    const [artifact] = createPrototypeHandoffArtifacts();
+    const clarified = requestHandoffClarification(
+      [artifact],
+      artifact.handoffId,
+      {
+        area: "risks",
+        question: "Which timeline source should Deployment Solutions trust?",
+      },
+      {
+        actorId: "Deployment Lead",
+        occurredAt: "2026-05-22T16:20:00.000Z",
+      },
+    );
+    const returned = returnHandoffForClarification(
+      clarified.artifacts,
+      artifact.handoffId,
+      {
+        actorId: "Deployment Lead",
+        occurredAt: "2026-05-22T16:25:00.000Z",
+      },
+    );
+
+    const revised = saveHandoffStructuredContent(
+      returned.artifacts,
+      artifact.handoffId,
+      completeContent,
+      {
+        actorId: "CeCe Rivera",
+        occurredAt: "2026-05-22T16:40:00.000Z",
+      },
+    );
+    const reviewAfterRevision = getHandoffCompletenessReview(revised.artifact);
+
+    expect(revised.artifact.clarificationRequests[0]).toMatchObject({
+      resolvedAt: "2026-05-22T16:40:00.000Z",
+      resolvedBy: "CeCe Rivera",
+      status: "resolved",
+    });
+    expect(reviewAfterRevision.items.find((item) => item.area === "risks"))
+      .toMatchObject({
+        state: "ready",
+      });
+
+    const ready = markHandoffReadyForReview(
+      revised.artifacts,
+      artifact.handoffId,
+      {
+        actorId: "CeCe Rivera",
+        occurredAt: "2026-05-22T16:45:00.000Z",
+      },
+    );
+    const accepted = acceptHandoff(ready.artifacts, artifact.handoffId, {
+      actorId: "Deployment Lead",
+      occurredAt: "2026-05-22T16:50:00.000Z",
+    });
+
+    expect(accepted.artifact.reviewDecisions.map((decision) => decision.decision))
+      .toEqual(["returned_for_clarification", "accepted"]);
+    expect(accepted.artifact.reviewDecision?.decision).toBe("accepted");
+  });
 });
+
+function createRestrictedReviewSourceArtifact(): HandoffArtifact {
+  const [artifact] = createPrototypeHandoffArtifacts();
+
+  return {
+    ...artifact,
+    structuredContent: {
+      ...artifact.structuredContent,
+      risks: {
+        ...artifact.structuredContent.risks,
+        supportingSources: [
+          {
+            accessState: "restricted",
+            approvalState: "restricted",
+            freshnessState: "restricted",
+            provenanceLabel: "Source Ledger",
+            sourceId: "src-restricted-commercial-plan",
+            title: "Restricted commercial launch plan",
+          },
+        ],
+      },
+    },
+  };
+}

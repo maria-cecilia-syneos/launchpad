@@ -81,6 +81,10 @@ test("requests, completes, and marks a reusable Digital Handoff Artifact ready",
   );
   await page.getByRole("combobox", { name: /commitments state/i })
     .selectOption("current");
+  await page.getByRole("combobox", { name: /assumptions state/i })
+    .selectOption("current");
+  await page.getByRole("combobox", { name: /risks state/i })
+    .selectOption("current");
   await page.getByRole("combobox", { name: /open questions state/i })
     .selectOption("current");
   await page.getByRole("textbox", { name: /open questions content/i }).fill(
@@ -95,4 +99,78 @@ test("requests, completes, and marks a reusable Digital Handoff Artifact ready",
   await expect(
     page.getByRole("region", { name: /latest audit event/i }),
   ).toContainText("Action: Ready for review");
+
+  const completenessPanel = page.getByRole("region", {
+    name: /handoff completeness panel/i,
+  });
+  await expect(completenessPanel).toContainText("Review status: Ready to accept");
+  await completenessPanel.getByRole("button", { name: /accept handoff/i })
+    .click();
+
+  await expect(page.getByRole("status")).toContainText(
+    "Accepted Digital Handoff Artifact",
+  );
+  await expect(artifact).toContainText("Status: Accepted");
+  await expect(
+    page.getByRole("region", { name: /latest audit event/i }),
+  ).toContainText("Action: Accepted");
+});
+
+test("requests clarification and returns a reusable Digital Handoff Artifact", async ({
+  page,
+}) => {
+  await page.goto("/handoff");
+
+  const completenessPanel = page.getByRole("region", {
+    name: /handoff completeness panel/i,
+  });
+  await expect(completenessPanel).toBeVisible();
+  await expect(completenessPanel).toContainText("State: Stale");
+  await expect(completenessPanel).toContainText("State: Conflicting");
+
+  await completenessPanel.getByRole("button", { name: /accept handoff/i })
+    .click();
+  await expect(page.getByRole("alert").filter({
+    hasText: /handoff must be marked ready/i,
+  })).toContainText(
+    "Handoff must be marked ready for review before acceptance.",
+  );
+
+  await completenessPanel.getByRole("combobox", {
+    name: /clarification area/i,
+  }).selectOption("risks");
+  await completenessPanel.getByRole("textbox", {
+    name: /clarification question/i,
+  }).fill("Which timeline source should Deployment Solutions trust?");
+  await completenessPanel.getByRole("button", {
+    name: /request clarification/i,
+  }).click();
+
+  await expect(page.getByRole("status")).toContainText(
+    "Requested clarification on Risks",
+  );
+  await expect(completenessPanel).toContainText("State: Needs clarification");
+  await expect(completenessPanel).toContainText(
+    "Which timeline source should Deployment Solutions trust?",
+  );
+  await expect(
+    page.getByRole("region", { name: /latest audit event/i }),
+  ).toContainText("Action: Clarification requested");
+
+  await completenessPanel.getByRole("button", {
+    name: /return for clarification/i,
+  }).click();
+
+  await expect(page.getByRole("status")).toContainText(
+    "Returned Digital Handoff Artifact for clarification",
+  );
+  await expect(
+    page.getByRole("article", { name: /digital handoff artifact/i }),
+  ).toContainText("Status: Returned for clarification");
+  await expect(completenessPanel).toContainText(
+    "Decision: Returned for clarification",
+  );
+  await expect(
+    page.getByRole("region", { name: /latest audit event/i }),
+  ).toContainText("Action: Returned");
 });

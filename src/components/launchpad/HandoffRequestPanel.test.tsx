@@ -209,6 +209,14 @@ describe("HandoffRequestPanel", () => {
       "Deploy kickoff materials before the June kickoff window.",
     );
     await user.selectOptions(
+      screen.getByRole("combobox", { name: /assumptions state/i }),
+      "current",
+    );
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: /risks state/i }),
+      "current",
+    );
+    await user.selectOptions(
       screen.getByRole("combobox", { name: /open questions state/i }),
       "current",
     );
@@ -240,6 +248,106 @@ describe("HandoffRequestPanel", () => {
         }),
       }),
     );
+
+    const completenessPanel = screen.getByRole("region", {
+      name: /handoff completeness panel/i,
+    });
+    expect(completenessPanel).toHaveTextContent(/review status: ready to accept/i);
+    await user.click(screen.getByRole("button", { name: /accept handoff/i }));
+
+    expect(screen.getByRole("status")).toHaveTextContent(
+      /accepted digital handoff artifact/i,
+    );
+    expect(
+      screen.getByRole("article", { name: /digital handoff artifact/i }),
+    ).toHaveTextContent(/status: accepted/i);
+    expect(
+      screen.getByRole("region", { name: /latest audit event/i }),
+    ).toHaveTextContent(/action: accepted/i);
+    expect(onHandoffAuditEvent).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        eventType: "handoff.accepted",
+        metadata: expect.objectContaining({
+          action: "accepted",
+        }),
+      }),
+    );
+  });
+
+  it("shows completeness gaps, records clarification requests, and returns for update", async () => {
+    const user = userEvent.setup();
+    const onHandoffAuditEvent = vi.fn();
+
+    render(
+      <HandoffRequestPanel
+        initialArtifacts={createPrototypeHandoffArtifacts()}
+        onHandoffAuditEvent={onHandoffAuditEvent}
+        session={defaultWorkspaceSession}
+      />,
+    );
+
+    const panel = screen.getByRole("region", {
+      name: /handoff completeness panel/i,
+    });
+    expect(panel).toHaveTextContent(/assumptions/i);
+    expect(panel).toHaveTextContent(/state: stale/i);
+    expect(panel).toHaveTextContent(/risks/i);
+    expect(panel).toHaveTextContent(/state: conflicting/i);
+    expect(panel).toHaveTextContent(/owner route: deployment solutions/i);
+    expect(panel).toHaveTextContent(/source route: cardiomax smartsheet status/i);
+
+    await user.click(screen.getByRole("button", { name: /accept handoff/i }));
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      /handoff must be marked ready for review before acceptance/i,
+    );
+
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: /clarification area/i }),
+      "risks",
+    );
+    await user.type(
+      screen.getByRole("textbox", { name: /clarification question/i }),
+      "Which timeline source should Deployment Solutions trust?",
+    );
+    await user.click(
+      screen.getByRole("button", { name: /request clarification/i }),
+    );
+
+    expect(screen.getByRole("status")).toHaveTextContent(
+      /requested clarification on risks/i,
+    );
+    expect(panel).toHaveTextContent(/state: needs clarification/i);
+    expect(panel).toHaveTextContent(
+      /which timeline source should deployment solutions trust/i,
+    );
+    expect(
+      screen.getByRole("region", { name: /latest audit event/i }),
+    ).toHaveTextContent(/action: clarification requested/i);
+    expect(onHandoffAuditEvent).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        eventType: "handoff.clarification_requested",
+        metadata: expect.objectContaining({
+          action: "clarification_requested",
+        }),
+      }),
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: /return for clarification/i }),
+    );
+
+    expect(screen.getByRole("status")).toHaveTextContent(
+      /returned digital handoff artifact for clarification/i,
+    );
+    expect(
+      screen.getByRole("article", { name: /digital handoff artifact/i }),
+    ).toHaveTextContent(/status: returned for clarification/i);
+    expect(panel).toHaveTextContent(/decision: returned for clarification/i);
+    expect(panel).toHaveTextContent(/required updates/i);
+    expect(
+      screen.getByRole("region", { name: /latest audit event/i }),
+    ).toHaveTextContent(/action: returned/i);
+    expect(panel).toHaveTextContent(/decision history: returned for clarification/i);
   });
 
   it("redacts restricted structured source details for non-admin users", () => {
@@ -260,6 +368,14 @@ describe("HandoffRequestPanel", () => {
     );
     expect(structuredSummary).toHaveTextContent(/access: restricted/i);
     expect(structuredSummary).not.toHaveTextContent(
+      /restricted commercial launch plan/i,
+    );
+
+    const completenessPanel = screen.getByRole("region", {
+      name: /handoff completeness panel/i,
+    });
+    expect(completenessPanel).toHaveTextContent(/source route: restricted source/i);
+    expect(completenessPanel).not.toHaveTextContent(
       /restricted commercial launch plan/i,
     );
   });
