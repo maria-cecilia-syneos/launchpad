@@ -227,6 +227,18 @@ describe("source ledger domain helpers", () => {
     expect(
       filterSourceLedgerResults(visibleSources, {
         ...defaultSourceLedgerFilters,
+        freshnessState: "stale",
+        query: "status",
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        displayName: "CARDIOMAX Smartsheet Status",
+        matchRationale: "Matched title and freshness.",
+      }),
+    ]);
+    expect(
+      filterSourceLedgerResults(visibleSources, {
+        ...defaultSourceLedgerFilters,
         sourceType: "handoff_artifact",
       }).map((source) => source.displayName),
     ).toEqual(["CARDIOMAX Deployment Handoff"]);
@@ -324,6 +336,9 @@ describe("source ledger domain helpers", () => {
     );
     expect(getSourceLedgerNextAction(failedSource, true)).toBe(
       "Retry ingestion or check connector and source access.",
+    );
+    expect(staleSource.ingestionHistorySummary).toBe(
+      "Latest ingestion status is stale; registered 2026-05-21T12:10:00.000Z.",
     );
   });
 });

@@ -33,6 +33,14 @@ type SourceLedgerAuditEvent =
   | SalesforceSyncAuditEvent
   | LaunchArtifactSyncAuditEvent;
 
+function expectStatusRegionToHaveText(pattern: RegExp) {
+  expect(
+    screen.getAllByRole("status").some((region) =>
+      pattern.test(region.textContent ?? ""),
+    ),
+  ).toBe(true);
+}
+
 describe("SourceLedgerPanel", () => {
   it("renders registered sources with provenance and source states", () => {
     render(
@@ -70,9 +78,7 @@ describe("SourceLedgerPanel", () => {
     );
 
     await user.click(screen.getByRole("button", { name: /register source/i }));
-    expect(screen.getByRole("status")).toHaveTextContent(
-      /source name is required/i,
-    );
+    expectStatusRegionToHaveText(/source name is required/i);
 
     await user.type(
       screen.getByRole("textbox", { name: /source name/i }),
@@ -100,9 +106,7 @@ describe("SourceLedgerPanel", () => {
     );
     await user.click(screen.getByRole("button", { name: /register source/i }));
 
-    expect(screen.getByRole("status")).toHaveTextContent(
-      /source registered in source ledger/i,
-    );
+    expectStatusRegionToHaveText(/source registered in source ledger/i);
     expect(screen.getByText(/regional readiness teams channel/i)).toBeVisible();
     expect(onSourceAuditEvent).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -164,9 +168,7 @@ describe("SourceLedgerPanel", () => {
     );
     await user.click(screen.getByRole("button", { name: /register source/i }));
 
-    expect(screen.getByRole("status")).toHaveTextContent(
-      /source updated in source ledger/i,
-    );
+    expectStatusRegionToHaveText(/source updated in source ledger/i);
     expect(
       screen.getAllByRole("article", {
         name: /regional readiness teams channel/i,
@@ -225,9 +227,7 @@ describe("SourceLedgerPanel", () => {
     );
     await user.click(screen.getByRole("button", { name: /register source/i }));
 
-    expect(screen.getByRole("status")).toHaveTextContent(
-      /source registered in source ledger/i,
-    );
+    expectStatusRegionToHaveText(/source registered in source ledger/i);
     expect(
       screen.getByRole("article", { name: /shared teams source/i }),
     ).toBeVisible();
@@ -268,9 +268,7 @@ describe("SourceLedgerPanel", () => {
     );
     await user.click(screen.getByRole("button", { name: /register source/i }));
 
-    expect(screen.getByRole("status")).toHaveTextContent(
-      /audit recording failed/i,
-    );
+    expectStatusRegionToHaveText(/audit recording failed/i);
     expect(screen.queryByText(/regional readiness teams channel/i))
       .not.toBeInTheDocument();
   });
@@ -314,9 +312,7 @@ describe("SourceLedgerPanel", () => {
       />,
     );
 
-    expect(screen.getByRole("status")).toHaveTextContent(
-      /no accessible source details are available/i,
-    );
+    expectStatusRegionToHaveText(/no accessible source details are available/i);
   });
 
   it("searches, filters, summarizes, and clears Source Ledger results", async () => {
@@ -400,10 +396,17 @@ describe("SourceLedgerPanel", () => {
 
     expect(within(smartsheetResult).getByText(/source id:/i)).toBeVisible();
     expect(within(smartsheetResult).getByText(/object id:/i)).toBeVisible();
+    expect(within(smartsheetResult).getByText(/ingestion history:/i))
+      .toBeVisible();
     expect(within(smartsheetResult).getByText(/registered:/i)).toBeVisible();
     expect(within(smartsheetResult).getByText(/related launch:/i)).toBeVisible();
     expect(within(smartsheetResult).getByText(/next useful action:/i))
       .toBeVisible();
+    expect(
+      within(smartsheetResult).getByRole("link", {
+        name: /\/sources#cardiomax-smartsheet-status/i,
+      }),
+    ).toHaveAttribute("href", "/sources#cardiomax-smartsheet-status");
     expect(smartsheetResult).toHaveTextContent(
       /refresh this source or verify the latest source freshness/i,
     );
@@ -448,6 +451,11 @@ describe("SourceLedgerPanel", () => {
 
     expect(restrictedResult).toHaveTextContent(/source title: restricted source/i);
     expect(restrictedResult).toHaveTextContent(/next useful action:/i);
+    expect(
+      within(restrictedResult).queryByRole("link", {
+        name: /open source: restricted source/i,
+      }),
+    ).not.toBeInTheDocument();
     expect(restrictedResult).not.toHaveTextContent(/restricted commercial/i);
     expect(restrictedResult).not.toHaveTextContent(/commercial strategy/i);
   });
@@ -466,9 +474,7 @@ describe("SourceLedgerPanel", () => {
         viewState="loading"
       />,
     );
-    expect(screen.getByRole("status")).toHaveTextContent(
-      /retrieving sources/i,
-    );
+    expectStatusRegionToHaveText(/retrieving sources/i);
 
     rerender(
       <SourceLedgerPanel
@@ -480,6 +486,34 @@ describe("SourceLedgerPanel", () => {
     expect(screen.getByRole("alert")).toHaveTextContent(
       /source ledger could not load/i,
     );
+  });
+
+  it("hides filters and stale results while sources are loading or errored", () => {
+    const { rerender } = render(
+      <SourceLedgerPanel
+        initialSources={createPrototypeSourceRecords()}
+        session={adminSession}
+        viewState="loading"
+      />,
+    );
+
+    expect(screen.queryByRole("searchbox", { name: /search sources/i }))
+      .not.toBeInTheDocument();
+    expect(screen.queryByRole("article", { name: /cardiomax launch plan/i }))
+      .not.toBeInTheDocument();
+
+    rerender(
+      <SourceLedgerPanel
+        initialSources={createPrototypeSourceRecords()}
+        session={adminSession}
+        viewState="error"
+      />,
+    );
+
+    expect(screen.queryByRole("searchbox", { name: /search sources/i }))
+      .not.toBeInTheDocument();
+    expect(screen.queryByRole("article", { name: /cardiomax launch plan/i }))
+      .not.toBeInTheDocument();
   });
 
   it("syncs loaded source props while preserving local registrations", async () => {
@@ -539,9 +573,7 @@ describe("SourceLedgerPanel", () => {
       }),
     );
 
-    expect(screen.getByRole("status")).toHaveTextContent(
-      /2 normalized text records prepared for retrieval/i,
-    );
+    expectStatusRegionToHaveText(/2 normalized text records prepared for retrieval/i);
     const launchPlanResult = screen.getByRole("article", {
       name: /cardiomax launch plan/i,
     });
@@ -604,9 +636,7 @@ describe("SourceLedgerPanel", () => {
       }),
     );
 
-    expect(screen.getByRole("status")).toHaveTextContent(
-      /could not be retrieved/i,
-    );
+    expectStatusRegionToHaveText(/could not be retrieved/i);
     const failureResult = screen.getByRole("article", {
       name: /cardiomax connector failure source/i,
     });
@@ -663,7 +693,7 @@ describe("SourceLedgerPanel", () => {
       }),
     );
 
-    expect(screen.getByRole("status")).toHaveTextContent(
+    expectStatusRegionToHaveText(
       /2 governed collaboration summaries prepared for retrieval/i,
     );
     const teamsResult = screen.getByRole("article", {
@@ -725,9 +755,7 @@ describe("SourceLedgerPanel", () => {
       }),
     );
 
-    expect(screen.getByRole("status")).toHaveTextContent(
-      /skipped by governance or retention policy/i,
-    );
+    expectStatusRegionToHaveText(/skipped by governance or retention policy/i);
     const emailResult = screen.getByRole("article", {
       name: /cardiomax governance skipped email thread/i,
     });
@@ -787,7 +815,7 @@ describe("SourceLedgerPanel", () => {
       }),
     );
 
-    expect(screen.getByRole("status")).toHaveTextContent(
+    expectStatusRegionToHaveText(
       /1 salesforce launch context record prepared for retrieval/i,
     );
     const salesforceResult = screen.getByRole("article", {
@@ -854,9 +882,7 @@ describe("SourceLedgerPanel", () => {
       }),
     );
 
-    expect(screen.getByRole("status")).toHaveTextContent(
-      /access restricted/i,
-    );
+    expectStatusRegionToHaveText(/access restricted/i);
     const restrictedResult = screen.getByRole("article", {
       name: /cardiomax restricted salesforce record/i,
     });
@@ -915,9 +941,7 @@ describe("SourceLedgerPanel", () => {
       }),
     );
 
-    expect(screen.getByRole("status")).toHaveTextContent(
-      /could not be retrieved/i,
-    );
+    expectStatusRegionToHaveText(/could not be retrieved/i);
     const failureResult = screen.getByRole("article", {
       name: /cardiomax salesforce connector failure source/i,
     });
@@ -973,9 +997,7 @@ describe("SourceLedgerPanel", () => {
       }),
     );
 
-    expect(screen.getByRole("status")).toHaveTextContent(
-      /1 playbook template prepared for retrieval/i,
-    );
+    expectStatusRegionToHaveText(/1 playbook template prepared for retrieval/i);
     const playbookResult = screen.getByRole("article", {
       name: /cardiomax tier 2 launch playbook/i,
     });
@@ -1038,9 +1060,7 @@ describe("SourceLedgerPanel", () => {
       }),
     );
 
-    expect(screen.getByRole("status")).toHaveTextContent(
-      /required artifact information is missing/i,
-    );
+    expectStatusRegionToHaveText(/required artifact information is missing/i);
     const handoffResult = screen.getByRole("article", {
       name: /cardiomax incomplete deployment handoff/i,
     });
@@ -1095,7 +1115,7 @@ describe("SourceLedgerPanel", () => {
       }),
     );
 
-    expect(screen.getByRole("status")).toHaveTextContent(
+    expectStatusRegionToHaveText(
       /structured launch artifacts could not be retrieved/i,
     );
     const failureResult = screen.getByRole("article", {

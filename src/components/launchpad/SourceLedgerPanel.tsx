@@ -547,7 +547,7 @@ export function SourceLedgerPanel({
         </div>
       ) : null}
 
-      {visibleSources.length > 0 ? (
+      {viewState === "ready" && visibleSources.length > 0 ? (
         <section
           aria-label="Search and filter Source Ledger"
           className="rounded-lg border border-border bg-card p-5 shadow-sm"
@@ -703,9 +703,7 @@ export function SourceLedgerPanel({
           <p
             aria-label="Source result count"
             className="mt-3 text-sm text-muted-foreground"
-            role={
-              statusMessage || hasOnlyRestrictedDetails ? undefined : "status"
-            }
+            role="status"
           >
             {sourceResultSummary}
           </p>
@@ -723,7 +721,7 @@ export function SourceLedgerPanel({
         </div>
       ) : null}
 
-      {filteredSources.length > 0 ? (
+      {viewState === "ready" && filteredSources.length > 0 ? (
         <div aria-label="Registered source records" className="grid gap-3">
           {filteredSources.map((source) => {
             const sourceRecord = sourceById.get(source.sourceKey);

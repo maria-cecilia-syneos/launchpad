@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import {
   ChevronDown,
   ExternalLink,
@@ -32,9 +32,12 @@ export function SourceLedgerResult({
   onRunIngestion,
   source,
 }: SourceLedgerResultProps) {
+  const detailsId = useId();
   const [isInspecting, setIsInspecting] = useState(false);
   const AccessIcon = source.isRedacted ? Lock : ShieldCheck;
-  const safeSourceUrl = normalizeSourceUrl(source.sourceUrl);
+  const safeSourceUrl = source.isRedacted
+    ? undefined
+    : normalizeSourceUrl(source.sourceUrl);
   const detailsButtonLabel = `${
     isInspecting ? "Hide" : "Show"
   } details for ${source.displayName}`;
@@ -82,6 +85,7 @@ export function SourceLedgerResult({
           ) : null}
 
           <button
+            aria-controls={detailsId}
             aria-expanded={isInspecting}
             aria-label={detailsButtonLabel}
             className="inline-flex min-h-10 items-center gap-1 rounded-md border border-border px-3 py-2 font-medium text-syneos-teal hover:bg-card focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-syneos-teal"
@@ -138,6 +142,8 @@ export function SourceLedgerResult({
       {isInspecting ? (
         <div
           className="mt-3 rounded-md border border-border bg-card p-3"
+          id={detailsId}
+          aria-label={`Source details for ${source.displayName}`}
           role="group"
         >
           <h4 className="text-sm font-semibold">Source details</h4>
@@ -167,6 +173,10 @@ export function SourceLedgerResult({
             <SourceDetailTerm
               label="Ingestion"
               value={ingestionStatusLabels[source.ingestionStatus]}
+            />
+            <SourceDetailTerm
+              label="Ingestion history"
+              value={source.ingestionHistorySummary}
             />
             <SourceDetailTerm
               label="Source-link health"
@@ -209,7 +219,10 @@ export function SourceLedgerResult({
               value={source.nextAction}
             />
             {safeSourceUrl ? (
-              <SourceDetailTerm label="Authorized source link" value="Available" />
+              <SourceDetailLinkTerm
+                href={safeSourceUrl}
+                label="Authorized source link"
+              />
             ) : null}
           </dl>
         </div>
@@ -220,11 +233,11 @@ export function SourceLedgerResult({
 
 function SourceTerm({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-md border border-border bg-card px-3 py-2">
+    <div className="min-w-0 rounded-md border border-border bg-card px-3 py-2">
       <dt className="text-xs font-semibold uppercase tracking-normal text-muted-foreground">
         {label}
       </dt>
-      <dd>
+      <dd className="[overflow-wrap:anywhere]">
         {label}: {value}
       </dd>
     </div>
@@ -233,12 +246,37 @@ function SourceTerm({ label, value }: { label: string; value: string }) {
 
 function SourceDetailTerm({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-md border border-border bg-background px-3 py-2">
+    <div className="min-w-0 rounded-md border border-border bg-background px-3 py-2">
       <dt className="text-xs font-semibold uppercase tracking-normal text-muted-foreground">
         {label}
       </dt>
-      <dd>
+      <dd className="[overflow-wrap:anywhere]">
         {label}: {value}
+      </dd>
+    </div>
+  );
+}
+
+function SourceDetailLinkTerm({
+  href,
+  label,
+}: {
+  href: string;
+  label: string;
+}) {
+  return (
+    <div className="min-w-0 rounded-md border border-border bg-background px-3 py-2">
+      <dt className="text-xs font-semibold uppercase tracking-normal text-muted-foreground">
+        {label}
+      </dt>
+      <dd className="[overflow-wrap:anywhere]">
+        {label}:{" "}
+        <a
+          className="font-medium text-syneos-orange underline-offset-4 hover:underline"
+          href={href}
+        >
+          {href}
+        </a>
       </dd>
     </div>
   );

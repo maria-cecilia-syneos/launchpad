@@ -92,6 +92,7 @@ export type VisibleSourceLedgerRecord = {
   displaySourceSystem: string;
   displaySourceType: string;
   freshnessState: SourceFreshnessState;
+  ingestionHistorySummary: string;
   ingestionStatus: SourceIngestionStatus;
   isRedacted: boolean;
   lastRefreshedAt?: string;
@@ -580,6 +581,7 @@ export function toVisibleSourceRecord(
       displaySourceSystem: "Restricted",
       displaySourceType: "Restricted",
       freshnessState: "restricted",
+      ingestionHistorySummary: "Restricted ingestion history is hidden.",
       ingestionStatus: "restricted",
       isRedacted,
       sourceKey: `restricted-source-${index}`,
@@ -598,6 +600,7 @@ export function toVisibleSourceRecord(
     displaySourceSystem: sourceSystemLabels[record.sourceSystem],
     displaySourceType: sourceTypeLabels[record.sourceType],
     freshnessState: record.freshnessState,
+    ingestionHistorySummary: getVisibleIngestionHistorySummary(record),
     ingestionStatus: record.ingestionStatus,
     isRedacted,
     lastRefreshedAt: record.lastRefreshedAt,
@@ -858,9 +861,9 @@ function getSourceMatchRationale(
   const query = normalizeSearchValue(filters.query);
   const queryMatchLabels = query ? getQueryMatchLabels(source, query) : [];
   const labels =
-    filterMatchLabels.length > 0
-      ? filterMatchLabels
-      : queryMatchLabels.slice(0, 1);
+    queryMatchLabels.length > 0
+      ? [...queryMatchLabels.slice(0, 1), ...filterMatchLabels]
+      : filterMatchLabels;
 
   if (labels.length === 0) {
     return "Visible because no filters are active.";
@@ -922,6 +925,16 @@ function joinMatchLabels(labels: string[]) {
 
 function formatCount(count: number, singularNoun: string) {
   return `${count} ${singularNoun}${count === 1 ? "" : "s"}`;
+}
+
+function getVisibleIngestionHistorySummary(record: SourceLedgerRecord) {
+  const status = ingestionStatusLabels[record.ingestionStatus].toLowerCase();
+
+  if (record.lastRefreshedAt) {
+    return `Latest ingestion status is ${status}; last refreshed ${record.lastRefreshedAt}.`;
+  }
+
+  return `Latest ingestion status is ${status}; registered ${record.registeredAt}.`;
 }
 
 function inferSourceLinkHealth(
