@@ -23,6 +23,7 @@ export type HandoffAction =
   | "appended"
   | "clarification_requested"
   | "created"
+  | "kickoff_readiness_updated"
   | "ready_for_review"
   | "returned"
   | "updated";
@@ -30,6 +31,7 @@ export type HandoffAction =
 export type HandoffAuditEventType =
   | "handoff.accepted"
   | "handoff.clarification_requested"
+  | "handoff.kickoff_readiness_updated"
   | "handoff.ready_for_review"
   | "handoff.requested"
   | "handoff.returned"
@@ -121,6 +123,34 @@ export type HandoffReviewDecision = {
   requiredUpdates: string[];
 };
 
+export type HandoffKickoffReadinessState =
+  | "blocked"
+  | "needs_follow_up"
+  | "not_applicable"
+  | "ready";
+
+export type HandoffKickoffReadinessDecision = {
+  actorId: string;
+  area: HandoffReviewArea;
+  correlationId: string;
+  handoffId: string;
+  launchId: string;
+  note: string;
+  occurredAt: string;
+  ownerRoute: string;
+  sourceRoute?: string;
+  state: HandoffKickoffReadinessState;
+  workstreamId: string;
+};
+
+export type HandoffKickoffReadinessDecisionInput = {
+  area: HandoffReviewArea;
+  note?: string;
+  ownerRoute?: string;
+  sourceRoute?: string;
+  state: HandoffKickoffReadinessState;
+};
+
 export type HandoffReadinessReviewItem = {
   area: HandoffReviewArea;
   evidence: HandoffSupportingSource[];
@@ -171,6 +201,7 @@ export type HandoffArtifact = {
   createdAt: string;
   handoffId: string;
   history: HandoffHistoryEntry[];
+  kickoffReadinessDecisions: HandoffKickoffReadinessDecision[];
   launchId: string;
   purpose: string;
   receivingTeam: string;
@@ -208,6 +239,9 @@ export type HandoffAuditEvent = {
   launchId: string;
   metadata: {
     action: HandoffAction;
+    readinessArea?: HandoffReviewArea;
+    readinessNote?: string;
+    readinessState?: HandoffKickoffReadinessState;
     receivingTeam: string;
     sendingTeam: string;
     workstreamId: string;
@@ -246,6 +280,23 @@ export const handoffReviewStateLabels: Record<HandoffReviewState, string> = {
   ready: "Ready",
   stale: "Stale",
 };
+
+export const handoffKickoffReadinessStateLabels: Record<
+  HandoffKickoffReadinessState,
+  string
+> = {
+  blocked: "Blocked",
+  needs_follow_up: "Needs follow-up",
+  not_applicable: "Not applicable",
+  ready: "Ready",
+};
+
+export const handoffKickoffReadinessStateOrder: HandoffKickoffReadinessState[] = [
+  "ready",
+  "needs_follow_up",
+  "blocked",
+  "not_applicable",
+];
 
 export const handoffStatusLabels: Record<HandoffStatus, string> = {
   accepted: "Accepted",
@@ -437,6 +488,7 @@ export function requestReusableHandoff(
     createdAt: occurredAt,
     handoffId,
     history: [entry],
+    kickoffReadinessDecisions: [],
     launchId: input.launchId.trim(),
     purpose: input.purpose.trim(),
     receivingTeam: input.receivingTeam.trim(),
@@ -498,6 +550,7 @@ export function createPrototypeHandoffArtifacts(): HandoffArtifact[] {
           supportingSources: [prototypeHandoffSupportingSources[3]],
         }),
       ],
+      kickoffReadinessDecisions: [],
       launchId: "cardiomax",
       purpose: "Initial deployment scope and client commitment context.",
       receivingTeam: "Deployment Solutions",
@@ -703,6 +756,16 @@ export function getHandoffCompletenessReview(
   };
 }
 
+export function getHandoffKickoffReadinessDecisions(
+  artifact: HandoffArtifact,
+) {
+  return artifact.kickoffReadinessDecisions ?? [];
+}
+
+export function isHandoffKickoffPrepEligible(artifact: HandoffArtifact) {
+  return artifact.status === "accepted" || artifact.status === "ready_for_review";
+}
+
 export function requestHandoffClarification(
   existingArtifacts: HandoffArtifact[],
   handoffId: string,
@@ -871,6 +934,88 @@ export function returnHandoffForClarification(
   };
 }
 
+export function updateKickoffReadinessDecision(
+  existingArtifacts: HandoffArtifact[],
+  handoffId: string,
+  input: HandoffKickoffReadinessDecisionInput,
+  {
+    actorId,
+    correlationId,
+    occurredAt = new Date().toISOString(),
+  }: RequestReusableHandoffOptions,
+): HandoffContentResult {
+  const matchIndex = findHandoffArtifactIndex(existingArtifacts, handoffId);
+  const existingArtifact = existingArtifacts[matchIndex];
+
+  if (!handoffReviewAreaOrder.includes(input.area)) {
+    throw new Error("Kickoff readiness area is invalid.");
+  }
+
+  if (!handoffKickoffReadinessStateOrder.includes(input.state)) {
+    throw new Error("Kickoff readiness state is invalid.");
+  }
+
+  if (!isHandoffKickoffPrepEligible(existingArtifact)) {
+    throw new Error(
+      "Handoff must be ready for review or accepted before kickoff readiness decisions can be saved.",
+    );
+  }
+
+  const decisionCorrelationId = correlationId ?? createId(
+    "corr",
+    `${handoffId}-${input.area}-${input.state}-${occurredAt}`,
+  );
+  const review = getHandoffCompletenessReview(existingArtifact);
+  const reviewItem = review.items.find((item) => item.area === input.area);
+  const decision: HandoffKickoffReadinessDecision = {
+    actorId,
+    area: input.area,
+    correlationId: decisionCorrelationId,
+    handoffId: existingArtifact.handoffId,
+    launchId: existingArtifact.launchId,
+    note: input.note?.trim() ?? "",
+    occurredAt,
+    ownerRoute:
+      input.ownerRoute?.trim() ||
+      reviewItem?.ownerRoute ||
+      getDefaultStakeholderRoute(existingArtifact),
+    sourceRoute: input.sourceRoute?.trim() || reviewItem?.sourceRoute,
+    state: input.state,
+    workstreamId: existingArtifact.workstreamId,
+  };
+  const existingDecisions = getHandoffKickoffReadinessDecisions(
+    existingArtifact,
+  );
+  const artifact: HandoffArtifact = {
+    ...existingArtifact,
+    kickoffReadinessDecisions: [
+      ...existingDecisions,
+      decision,
+    ],
+    updatedAt: occurredAt,
+  };
+  const artifacts = replaceHandoffArtifact(
+    existingArtifacts,
+    matchIndex,
+    artifact,
+  );
+
+  return {
+    action: "kickoff_readiness_updated",
+    artifact,
+    artifacts,
+    auditEvent: buildHandoffAuditEvent(artifact, {
+      action: "kickoff_readiness_updated",
+      actorId,
+      correlationId: decisionCorrelationId,
+      occurredAt,
+      readinessArea: input.area,
+      readinessNote: decision.note,
+      readinessState: input.state,
+    }),
+  };
+}
+
 function buildHandoffAuditEvent(
   artifact: HandoffArtifact,
   {
@@ -881,11 +1026,17 @@ function buildHandoffAuditEvent(
       `${artifact.handoffId}-${action}-${artifact.updatedAt}`,
     ),
     occurredAt,
+    readinessArea,
+    readinessNote,
+    readinessState,
   }: {
     action: HandoffAction;
     actorId: string;
     correlationId?: string;
     occurredAt: string;
+    readinessArea?: HandoffReviewArea;
+    readinessNote?: string;
+    readinessState?: HandoffKickoffReadinessState;
   },
 ): HandoffAuditEvent {
   const eventTypeByAction: Record<HandoffAction, HandoffAuditEventType> = {
@@ -893,6 +1044,7 @@ function buildHandoffAuditEvent(
     appended: "handoff.requested",
     clarification_requested: "handoff.clarification_requested",
     created: "handoff.requested",
+    kickoff_readiness_updated: "handoff.kickoff_readiness_updated",
     ready_for_review: "handoff.ready_for_review",
     returned: "handoff.returned",
     updated: "handoff.updated",
@@ -907,6 +1059,9 @@ function buildHandoffAuditEvent(
     launchId: artifact.launchId,
     metadata: {
       action,
+      ...(readinessArea ? { readinessArea } : {}),
+      ...(readinessNote ? { readinessNote } : {}),
+      ...(readinessState ? { readinessState } : {}),
       receivingTeam: artifact.receivingTeam,
       sendingTeam: artifact.sendingTeam,
       workstreamId: artifact.workstreamId,

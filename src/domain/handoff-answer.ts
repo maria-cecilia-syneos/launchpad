@@ -15,7 +15,9 @@ import type {
 } from "./handoff";
 import {
   getHandoffCompletenessReview,
+  getHandoffKickoffReadinessDecisions,
   handoffHistoryStateLabels,
+  handoffKickoffReadinessStateLabels,
   handoffReviewAreaLabels,
   handoffReviewStateLabels,
   handoffSectionLabels,
@@ -221,7 +223,7 @@ function classifyHandoffQuestion(question: string): HandoffQuestionIntent {
     return { kind: "sections", sections: uniqueValues(sections) };
   }
 
-  if (/\b(readiness|ready|acceptance|accept|complete|completeness|gaps?|missing|stale|conflicting|superseded)\b/i.test(question)) {
+  if (/\b(readiness|ready|acceptance|accept|complete|completeness|readiness decisions?|kickoff decisions?|gaps?|missing|stale|conflicting|superseded)\b/i.test(question)) {
     return { kind: "readiness", sections: [] };
   }
 
@@ -387,6 +389,7 @@ function buildReadinessAnswer(
       },
       ...gapFacts,
       ...buildReviewDecisionFacts(artifact),
+      ...buildKickoffReadinessDecisionFacts(artifact),
     ],
     nextActions: review.canAccept
       ? [
@@ -459,6 +462,7 @@ function buildHistoryAnswer(
     retrievedFacts: [
       ...artifact.history.map((entry) => buildHistoryFact(artifact, entry)),
       ...buildCurrentSectionUpdateFacts(artifact),
+      ...buildKickoffReadinessDecisionFacts(artifact),
     ],
     generatedDraft: {
       id: `${artifact.handoffId}-history-draft`,
@@ -723,6 +727,23 @@ function buildReviewDecisionFacts(artifact: HandoffArtifact) {
       `Review decision ${handoffStatusLabels[decision.decision]} recorded ` +
       `${decision.occurredAt} by ${decision.actorId}. Required updates: ` +
       `${decision.requiredUpdates.length > 0 ? decision.requiredUpdates.join(" ") : "None"}.`,
+    citationId: artifact.handoffId,
+  }));
+}
+
+function buildKickoffReadinessDecisionFacts(artifact: HandoffArtifact) {
+  return getHandoffKickoffReadinessDecisions(artifact).map((decision, index) => ({
+    id: `${artifact.handoffId}-kickoff-readiness-decision-${index + 1}`,
+    text:
+      `Kickoff readiness decision for ${handoffReviewAreaLabels[decision.area]} ` +
+      `is ${handoffKickoffReadinessStateLabels[decision.state]}. ` +
+      `Recorded ${decision.occurredAt} by ${decision.actorId}. ` +
+      `Handoff ID: ${decision.handoffId ?? artifact.handoffId}. ` +
+      `Launch ID: ${decision.launchId ?? artifact.launchId}. ` +
+      `Workstream ID: ${decision.workstreamId ?? artifact.workstreamId}. ` +
+      `Owner route: ${decision.ownerRoute}. Source route: ` +
+      `${decision.sourceRoute ?? "No source route available"}. ` +
+      `Note: ${decision.note || "None"}.`,
     citationId: artifact.handoffId,
   }));
 }

@@ -16,8 +16,10 @@ import {
   acceptHandoff,
   createPrototypeHandoffArtifacts,
   getHandoffCompletenessReview,
+  getHandoffKickoffReadinessDecisions,
   getHandoffResponsibleOwner,
   handoffHistoryStateLabels,
+  handoffKickoffReadinessStateLabels,
   handoffReviewAreaLabels,
   handoffReviewAreaOrder,
   handoffReviewStateLabels,
@@ -30,6 +32,7 @@ import {
   requestReusableHandoff,
   returnHandoffForClarification,
   saveHandoffStructuredContent,
+  updateKickoffReadinessDecision,
   validateHandoffRequest,
   validateHandoffReadiness,
   type HandoffArtifact,
@@ -37,6 +40,7 @@ import {
   type HandoffCompletenessReview,
   type HandoffContentInput,
   type HandoffHistoryEntry,
+  type HandoffKickoffReadinessDecisionInput,
   type HandoffReadinessValidationError,
   type HandoffRequestInput,
   type HandoffReviewArea,
@@ -46,12 +50,15 @@ import {
   type HandoffSupportingSource,
   type HandoffValidationError,
 } from "@/domain/handoff";
+import { buildKickoffReadinessSummary } from "@/domain/kickoff-readiness";
 import {
   accessStateLabels,
   approvalStateLabels,
   freshnessStateLabels,
 } from "@/domain/source-ledger";
 import type { WorkspaceSession } from "@/domain/workspace";
+
+import { KickoffReadinessSummaryPanel } from "./KickoffReadinessSummaryPanel";
 
 type HandoffRequestPanelProps = {
   initialArtifacts?: HandoffArtifact[];
@@ -166,6 +173,17 @@ export function HandoffRequestPanel({
     [latestArtifact],
   );
   const canViewRestrictedSources = session.user.role === "admin";
+  const kickoffReadinessSummary = useMemo(
+    () =>
+      latestArtifact
+        ? buildKickoffReadinessSummary({
+            artifact: latestArtifact,
+            auditEvents: latestAuditEvent ? [latestAuditEvent] : [],
+            canViewRestricted: canViewRestrictedSources,
+          })
+        : null,
+    [canViewRestrictedSources, latestArtifact, latestAuditEvent],
+  );
 
   function updateForm<Key extends keyof FormState>(
     key: Key,
@@ -452,6 +470,45 @@ export function HandoffRequestPanel({
     }
   }
 
+  function handleSaveKickoffReadinessDecision(
+    input: HandoffKickoffReadinessDecisionInput,
+  ) {
+    if (!latestArtifact) {
+      return;
+    }
+
+    try {
+      const result = updateKickoffReadinessDecision(
+        artifacts,
+        latestArtifact.handoffId,
+        input,
+        {
+          actorId: session.user.name,
+        },
+      );
+      const decisions = getHandoffKickoffReadinessDecisions(result.artifact);
+      const decision = decisions.at(-1);
+
+      if (!decision) {
+        return;
+      }
+
+      setArtifacts(result.artifacts);
+      setLatestArtifact(result.artifact);
+      setLatestAuditEvent(result.auditEvent);
+      setStatusMessage(
+        `Saved kickoff readiness decision for ${
+          handoffReviewAreaLabels[decision.area]
+        } as ${handoffKickoffReadinessStateLabels[decision.state]}.`,
+      );
+      setReviewAlert("");
+      onHandoffAuditEvent?.(result.auditEvent);
+    } catch (error) {
+      setReviewAlert(getErrorMessage(error));
+      setStatusMessage("");
+    }
+  }
+
   return (
     <section aria-labelledby="handoff-title" className="grid gap-4">
       <div className="rounded-lg border border-border bg-card p-5 shadow-sm">
@@ -656,6 +713,13 @@ export function HandoffRequestPanel({
         />
       ) : null}
 
+      {kickoffReadinessSummary ? (
+        <KickoffReadinessSummaryPanel
+          onSaveDecision={handleSaveKickoffReadinessDecision}
+          summary={kickoffReadinessSummary}
+        />
+      ) : null}
+
       {latestArtifact ? (
         <HandoffArtifactSummary
           artifact={latestArtifact}
@@ -678,6 +742,26 @@ export function HandoffRequestPanel({
             <AuditTerm label="Workstream ID" value={
               latestAuditEvent.metadata.workstreamId
             } />
+            {latestAuditEvent.metadata.readinessArea ? (
+              <AuditTerm
+                label="Readiness area"
+                value={
+                  handoffReviewAreaLabels[
+                    latestAuditEvent.metadata.readinessArea
+                  ]
+                }
+              />
+            ) : null}
+            {latestAuditEvent.metadata.readinessState ? (
+              <AuditTerm
+                label="Readiness state"
+                value={
+                  handoffKickoffReadinessStateLabels[
+                    latestAuditEvent.metadata.readinessState
+                  ]
+                }
+              />
+            ) : null}
             <AuditTerm label="Handoff ID" value={latestAuditEvent.handoffId} />
             <AuditTerm
               label="Sending team"
@@ -692,6 +776,12 @@ export function HandoffRequestPanel({
               label="Correlation ID"
               value={latestAuditEvent.correlationId}
             />
+            {latestAuditEvent.metadata.readinessNote ? (
+              <AuditTerm
+                label="Readiness note"
+                value={latestAuditEvent.metadata.readinessNote}
+              />
+            ) : null}
           </dl>
         </section>
       ) : null}

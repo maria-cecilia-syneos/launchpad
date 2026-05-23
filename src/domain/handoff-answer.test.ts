@@ -7,6 +7,7 @@ import {
 } from "./handoff-answer";
 import {
   createPrototypeHandoffArtifacts,
+  updateKickoffReadinessDecision,
   type HandoffArtifact,
   type HandoffAuditEvent,
   type HandoffSupportingSource,
@@ -369,6 +370,68 @@ describe("handoff answer domain", () => {
       "Review decision Returned for clarification recorded 2026-05-22T13:00:00.000Z by Deployment Lead",
     );
     expect(factText).toContain("Risks: clarify blocker owner.");
+  });
+
+  it("includes kickoff readiness decision history in readiness answers", () => {
+    const artifact = getCompleteArtifact({
+      status: "ready_for_review",
+    });
+    const updated = updateKickoffReadinessDecision(
+      [artifact],
+      artifact.handoffId,
+      {
+        area: "risks",
+        note: "Risk mitigation is ready for kickoff.",
+        state: "ready",
+      },
+      {
+        actorId: "Deployment Lead",
+        occurredAt: "2026-05-22T18:00:00.000Z",
+      },
+    );
+    const answer = buildHandoffSourceBackedAnswer({
+      artifacts: [updated.artifact],
+      question: "What kickoff readiness decisions were saved?",
+      session: defaultWorkspaceSession,
+    });
+    const factText = answer.retrievedFacts.map((fact) => fact.text).join(" ");
+
+    expect(factText).toContain(
+      "Kickoff readiness decision for Risks is Ready",
+    );
+    expect(factText).toContain("Recorded 2026-05-22T18:00:00.000Z by Deployment Lead");
+    expect(factText).toContain(`Handoff ID: ${artifact.handoffId}`);
+    expect(factText).toContain(`Launch ID: ${artifact.launchId}`);
+    expect(factText).toContain(`Workstream ID: ${artifact.workstreamId}`);
+    expect(factText).toContain("Risk mitigation is ready for kickoff.");
+  });
+
+  it("keeps bare handoff decision questions out of readiness routing", () => {
+    const artifact = getCompleteArtifact({
+      status: "ready_for_review",
+    });
+    const updated = updateKickoffReadinessDecision(
+      [artifact],
+      artifact.handoffId,
+      {
+        area: "risks",
+        note: "Risk mitigation is ready for kickoff.",
+        state: "ready",
+      },
+      {
+        actorId: "Deployment Lead",
+        occurredAt: "2026-05-22T18:00:00.000Z",
+      },
+    );
+    const answer = buildHandoffSourceBackedAnswer({
+      artifacts: [updated.artifact],
+      question: "What handoff decisions were saved?",
+      session: defaultWorkspaceSession,
+    });
+    const factText = answer.retrievedFacts.map((fact) => fact.text).join(" ");
+
+    expect(answer.id).not.toContain("readiness-answer");
+    expect(factText).not.toContain("Kickoff readiness decision");
   });
 
   it("answers handoff audit questions from provided audit events", () => {

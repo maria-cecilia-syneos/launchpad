@@ -4,10 +4,47 @@ import { describe, expect, it, vi } from "vitest";
 
 import { HandoffRequestPanel } from "./HandoffRequestPanel";
 import {
+  acceptHandoff,
   createPrototypeHandoffArtifacts,
+  markHandoffReadyForReview,
+  saveHandoffStructuredContent,
   type HandoffArtifact,
+  type HandoffContentInput,
 } from "@/domain/handoff";
 import { defaultWorkspaceSession } from "@/domain/workspace";
+
+const completeHandoffContent: HandoffContentInput = {
+  assumptions: {
+    state: "current",
+    supportingSources: [],
+    text: "No additional delivery assumptions are known.",
+  },
+  commitments: {
+    state: "current",
+    supportingSources: [],
+    text: "Deploy kickoff materials before the June kickoff window.",
+  },
+  openQuestions: {
+    state: "current",
+    supportingSources: [],
+    text: "No open questions remain for kickoff readiness.",
+  },
+  owners: {
+    state: "current",
+    supportingSources: [],
+    text: "Deployment Solutions owns kickoff readiness.",
+  },
+  risks: {
+    state: "current",
+    supportingSources: [],
+    text: "Late asset updates could affect deployment preparation.",
+  },
+  scope: {
+    state: "current",
+    supportingSources: [],
+    text: "Deployment Solutions will prepare kickoff context.",
+  },
+};
 
 describe("HandoffRequestPanel", () => {
   it("creates a reusable Digital Handoff Artifact with sources and audit details", async () => {
@@ -350,6 +387,67 @@ describe("HandoffRequestPanel", () => {
     expect(panel).toHaveTextContent(/decision history: returned for clarification/i);
   });
 
+  it("saves kickoff readiness decisions with status and audit details", async () => {
+    const user = userEvent.setup();
+    const onHandoffAuditEvent = vi.fn();
+
+    render(
+      <HandoffRequestPanel
+        initialArtifacts={createAcceptedHandoffArtifacts()}
+        onHandoffAuditEvent={onHandoffAuditEvent}
+        session={defaultWorkspaceSession}
+      />,
+    );
+
+    const readinessPanel = screen.getByRole("region", {
+      name: /kickoff readiness summary/i,
+    });
+    expect(readinessPanel).toHaveTextContent(/kickoff readiness summary/i);
+    expect(readinessPanel).toHaveTextContent(/no kickoff readiness gaps/i);
+
+    const form = within(readinessPanel).getByRole("form", {
+      name: /save kickoff readiness decision/i,
+    });
+    await user.selectOptions(
+      within(form).getByRole("combobox", { name: /readiness area/i }),
+      "risks",
+    );
+    await user.selectOptions(
+      within(form).getByRole("combobox", { name: /readiness state/i }),
+      "blocked",
+    );
+    await user.type(
+      within(form).getByRole("textbox", { name: /decision note/i }),
+      "Timeline conflict blocks kickoff.",
+    );
+    await user.click(
+      within(form).getByRole("button", {
+        name: /save readiness decision/i,
+      }),
+    );
+
+    expect(screen.getByRole("status")).toHaveTextContent(
+      /saved kickoff readiness decision for risks as blocked/i,
+    );
+    expect(readinessPanel).toHaveTextContent(/risks: blocked/i);
+    expect(readinessPanel).toHaveTextContent(/timeline conflict blocks kickoff/i);
+    const audit = screen.getByRole("region", { name: /latest audit event/i });
+    expect(audit).toHaveTextContent(/action: kickoff readiness updated/i);
+    expect(audit).toHaveTextContent(/readiness area: risks/i);
+    expect(audit).toHaveTextContent(/readiness state: blocked/i);
+    expect(audit).toHaveTextContent(/correlation id:/i);
+    expect(onHandoffAuditEvent).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        eventType: "handoff.kickoff_readiness_updated",
+        metadata: expect.objectContaining({
+          action: "kickoff_readiness_updated",
+          readinessArea: "risks",
+          readinessState: "blocked",
+        }),
+      }),
+    );
+  });
+
   it("redacts restricted structured source details for non-admin users", () => {
     const artifacts = createRestrictedStructuredSourceArtifacts();
 
@@ -378,8 +476,43 @@ describe("HandoffRequestPanel", () => {
     expect(completenessPanel).not.toHaveTextContent(
       /restricted commercial launch plan/i,
     );
+
+    const readinessPanel = screen.getByRole("region", {
+      name: /kickoff readiness summary/i,
+    });
+    expect(readinessPanel).toHaveTextContent(/restricted handoff content/i);
+    expect(readinessPanel).toHaveTextContent(/restricted handoff source/i);
+    expect(readinessPanel).not.toHaveTextContent(
+      /restricted commercial launch plan/i,
+    );
+    expect(readinessPanel).not.toHaveTextContent(
+      /src-restricted-commercial-plan/i,
+    );
   });
 });
+
+function createAcceptedHandoffArtifacts(): HandoffArtifact[] {
+  const artifact = createPrototypeHandoffArtifacts()[0];
+  const draft = saveHandoffStructuredContent(
+    [artifact],
+    artifact.handoffId,
+    completeHandoffContent,
+    {
+      actorId: "CeCe Rivera",
+      occurredAt: "2026-05-22T17:00:00.000Z",
+    },
+  );
+  const ready = markHandoffReadyForReview(draft.artifacts, artifact.handoffId, {
+    actorId: "CeCe Rivera",
+    occurredAt: "2026-05-22T17:05:00.000Z",
+  });
+  const accepted = acceptHandoff(ready.artifacts, artifact.handoffId, {
+    actorId: "Deployment Lead",
+    occurredAt: "2026-05-22T17:10:00.000Z",
+  });
+
+  return accepted.artifacts;
+}
 
 function createRestrictedStructuredSourceArtifacts(): HandoffArtifact[] {
   const [artifact] = createPrototypeHandoffArtifacts();

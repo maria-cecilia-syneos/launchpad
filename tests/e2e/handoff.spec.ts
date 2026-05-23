@@ -114,6 +114,43 @@ test("requests, completes, and marks a reusable Digital Handoff Artifact ready",
   await expect(
     page.getByRole("region", { name: /latest audit event/i }),
   ).toContainText("Action: Accepted");
+
+  const kickoffReadinessPanel = page.getByRole("region", {
+    name: /kickoff readiness summary/i,
+  });
+  await expect(kickoffReadinessPanel).toBeVisible();
+  await expect(kickoffReadinessPanel).toContainText(
+    "Kickoff readiness summary",
+  );
+  const kickoffDecisionForm = kickoffReadinessPanel.getByRole("form", {
+    name: /save kickoff readiness decision/i,
+  });
+  await kickoffDecisionForm.getByRole("combobox", {
+    name: /readiness area/i,
+  }).selectOption("risks");
+  await kickoffDecisionForm.getByRole("combobox", {
+    name: /readiness state/i,
+  }).selectOption("blocked");
+  await kickoffDecisionForm.getByRole("textbox", {
+    name: /decision note/i,
+  }).fill("Timeline conflict blocks kickoff.");
+  await kickoffDecisionForm.getByRole("button", {
+    name: /save readiness decision/i,
+  }).click();
+
+  await expect(page.getByRole("status")).toContainText(
+    "Saved kickoff readiness decision for Risks as Blocked",
+  );
+  await expect(kickoffReadinessPanel).toContainText("Risks: Blocked");
+  await expect(kickoffReadinessPanel).toContainText(
+    "Timeline conflict blocks kickoff.",
+  );
+  await expect(
+    page.getByRole("region", { name: /latest audit event/i }),
+  ).toContainText("Action: Kickoff readiness updated");
+  await expect(
+    page.getByRole("region", { name: /latest audit event/i }),
+  ).toContainText("Readiness state: Blocked");
 });
 
 test("requests clarification and returns a reusable Digital Handoff Artifact", async ({
