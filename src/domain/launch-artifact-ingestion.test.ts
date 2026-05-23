@@ -103,6 +103,7 @@ const playbookRecord: LaunchArtifactAdapterRecord = {
       standardTasks: [
         {
           dependencyIds: [],
+          dueDateLogic: "Kickoff date minus 30 days",
           handoffGate: "Sales to Deployment readiness",
           ownerRole: "Launch PM",
           phase: "Mobilize",
@@ -111,6 +112,7 @@ const playbookRecord: LaunchArtifactAdapterRecord = {
         },
         {
           dependencyIds: ["pb-task-1"],
+          dueDateRule: "Kickoff date minus 14 days",
           ownerRole: "Deployment Lead",
           phase: "Launch",
           taskId: "pb-task-2",
@@ -196,12 +198,14 @@ describe("launch artifact ingestion domain helpers", () => {
     expect(result.playbookTemplates[0].standardTasks).toEqual([
       expect.objectContaining({
         dependencyIds: [],
+        dueDateLogic: "Kickoff date minus 30 days",
         ownerRole: "Launch PM",
         phase: "Mobilize",
         taskName: "Confirm launch tier and scope",
       }),
       expect.objectContaining({
         dependencyIds: ["pb-task-1"],
+        dueDateLogic: "Kickoff date minus 14 days",
         ownerRole: "Deployment Lead",
         phase: "Launch",
         taskName: "Complete deployment handoff review",

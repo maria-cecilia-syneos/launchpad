@@ -32,6 +32,9 @@ export type LaunchAssetApprovalState = "approved" | "draft" | "unapproved";
 
 export type PlaybookStandardTaskAdapterRecord = {
   dependencyIds?: unknown;
+  dueDateLabel?: unknown;
+  dueDateLogic?: unknown;
+  dueDateRule?: unknown;
   handoffGate?: unknown;
   ownerRole?: unknown;
   phase?: unknown;
@@ -114,6 +117,7 @@ type BaseLaunchArtifactRecord = {
 
 export type NormalizedPlaybookStandardTask = {
   dependencyIds: string[];
+  dueDateLogic?: string;
   handoffGate?: string;
   ownerRole?: string;
   phase: string;
@@ -934,12 +938,21 @@ function normalizePlaybookStandardTask(
 
   return {
     dependencyIds: getStringList(value.dependencyIds),
+    dueDateLogic: getPlaybookTaskDueDateLogic(value),
     handoffGate: normalizeFieldValue(value.handoffGate),
     ownerRole,
     phase,
     taskId,
     taskName,
   };
+}
+
+function getPlaybookTaskDueDateLogic(value: PlaybookStandardTaskAdapterRecord) {
+  return (
+    normalizeFieldValue(value.dueDateLogic) ??
+    normalizeFieldValue(value.dueDateRule) ??
+    normalizeFieldValue(value.dueDateLabel)
+  );
 }
 
 function buildLaunchTaskRecords(
@@ -1436,6 +1449,7 @@ function createPrototypeLaunchArtifactAdapterRecord(
         standardTasks: [
           {
             dependencyIds: [],
+            dueDateLogic: "Kickoff date minus 30 days",
             handoffGate: "Sales to Deployment readiness",
             ownerRole: "Launch PM",
             phase: "Mobilize",
@@ -1444,6 +1458,7 @@ function createPrototypeLaunchArtifactAdapterRecord(
           },
           {
             dependencyIds: ["pb-task-1"],
+            dueDateLogic: "Kickoff date minus 14 days",
             ownerRole: "Deployment Lead",
             phase: "Launch",
             taskId: "pb-task-2",

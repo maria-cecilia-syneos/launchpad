@@ -1,10 +1,6 @@
-import { WorkspaceSurfacePlaceholder } from "@/components/launchpad/WorkspaceSurfacePlaceholder";
+import { LaunchPlanStarterPanel } from "@/components/launchpad/LaunchPlanStarterPanel";
+import { defaultWorkspaceSession } from "@/domain/workspace";
 
 export default function TimelinePage() {
-  return (
-    <WorkspaceSurfacePlaceholder
-      description="Execution view for phases, tasks, owners, dependencies, handoff gates, and source freshness."
-      title="Timeline"
-    />
-  );
+  return <LaunchPlanStarterPanel session={defaultWorkspaceSession} />;
 }
