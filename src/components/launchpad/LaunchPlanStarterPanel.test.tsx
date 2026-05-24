@@ -3,9 +3,40 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { createPrototypeLaunchPlanSources } from "@/domain/launch-plan";
+import type { NormalizedLaunchTaskRecord } from "@/domain/launch-artifact-ingestion";
 import { defaultWorkspaceSession } from "@/domain/workspace";
 
 import { LaunchPlanStarterPanel } from "./LaunchPlanStarterPanel";
+
+function buildIngestedTaskRecord(
+  overrides: Partial<NormalizedLaunchTaskRecord> = {},
+): NormalizedLaunchTaskRecord {
+  return {
+    accessState: "authorized",
+    approvalState: "approved",
+    blockerState: "none",
+    criticalPath: true,
+    dependencyIds: [],
+    dueDateLabel: "T-14",
+    freshnessState: "fresh",
+    handoffRelevance: "Deployment readiness",
+    ingestionStatus: "complete",
+    launchId: defaultWorkspaceSession.launch.id,
+    launchTaskRecordId: "launchtask-cardiomax-readiness",
+    owningTeam: "Project Management",
+    ownerRole: "Project Manager",
+    phase: "Launch",
+    refreshedAt: "2026-05-21T16:00:00.000Z",
+    sourceId: "src-cardiomax-launch-tasks",
+    sourceLocationKey: "tasks-cardiomax-launch",
+    sourceObjectId: "tasks-cardiomax-launch",
+    sourceSystem: "task",
+    sourceUrl: "/sources#cardiomax-launch-tasks",
+    taskId: "task-readiness-review",
+    taskName: "Run readiness review",
+    ...overrides,
+  };
+}
 
 describe("LaunchPlanStarterPanel", () => {
   it("generates launch tasks from an approved Playbook template", async () => {
@@ -48,7 +79,7 @@ describe("LaunchPlanStarterPanel", () => {
       /generated 2 launch tasks for cardiomax launch/i,
     );
     const taskRegion = screen.getByRole("region", {
-      name: /generated launch tasks/i,
+      name: /launch timeline tasks/i,
     });
     const firstTask = within(taskRegion).getByRole("article", {
       name: /timeline task: confirm launch tier and scope/i,
@@ -59,15 +90,74 @@ describe("LaunchPlanStarterPanel", () => {
 
     expect(firstTask).toHaveTextContent(/phase: mobilize/i);
     expect(firstTask).toHaveTextContent(/owner role: launch pm/i);
+    expect(firstTask).toHaveTextContent(/status: watch/i);
+    expect(firstTask).toHaveTextContent(/critical path: yes/i);
+    expect(firstTask).toHaveTextContent(/blocker: no blocker/i);
     expect(firstTask).toHaveTextContent(
-      /due date logic: kickoff date minus 30 days/i,
+      /due date: kickoff date minus 30 days/i,
     );
-    expect(firstTask).toHaveTextContent(/handoff gate: sales to deployment readiness/i);
+    expect(firstTask).toHaveTextContent(
+      /handoff relevance: sales to deployment readiness/i,
+    );
+    expect(firstTask).toHaveTextContent(/source freshness: watch/i);
     expect(firstTask).toHaveTextContent(/freshness: watch/i);
     expect(firstTask).toHaveTextContent(/approval: approved/i);
     expect(secondTask).toHaveTextContent(
-      /dependencies: task-cardiomax-pb-task-1/i,
+      /dependencies: depends on confirm launch tier and scope/i,
     );
+
+    const filtersRegion = screen.getByRole("region", {
+      name: /timeline task filters/i,
+    });
+    await user.selectOptions(
+      within(filtersRegion).getByRole("combobox", { name: /status/i }),
+      "watch",
+    );
+
+    expect(
+      screen.getByRole("region", { name: /active timeline filters/i }),
+    ).toHaveTextContent(/status: watch/i);
+    expect(screen.getByText(/1 of 2 timeline tasks match current filters/i))
+      .toBeVisible();
+    expect(
+      within(taskRegion).getByRole("article", {
+        name: /timeline task: confirm launch tier and scope/i,
+      }),
+    ).toBeVisible();
+    expect(
+      within(taskRegion).queryByRole("article", {
+        name: /timeline task: complete deployment handoff review/i,
+      }),
+    ).not.toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", { name: /clear timeline filters/i }),
+    );
+    expect(screen.getByText(/2 of 2 timeline tasks shown/i)).toBeVisible();
+
+    await user.click(
+      screen.getByRole("button", {
+        name: /review details for complete deployment handoff review/i,
+      }),
+    );
+
+    const detailsRegion = screen.getByRole("region", {
+      name: /timeline task details/i,
+    });
+    expect(detailsRegion).toHaveTextContent(
+      /complete deployment handoff review/i,
+    );
+    expect(detailsRegion).toHaveTextContent(/phase: launch/i);
+    expect(detailsRegion).toHaveTextContent(/owner: deployment lead/i);
+    expect(detailsRegion).toHaveTextContent(
+      /dependencies: depends on confirm launch tier and scope/i,
+    );
+    expect(detailsRegion).toHaveTextContent(
+      /dependency task: confirm launch tier and scope/i,
+    );
+    expect(
+      within(detailsRegion).getByRole("link", { name: /playbook source/i }),
+    ).toHaveAttribute("href", "/sources#cardiomax-tier-2-playbook");
 
     const auditRegion = screen.getByRole("region", {
       name: /latest launch generation audit event/i,
@@ -91,13 +181,101 @@ describe("LaunchPlanStarterPanel", () => {
     await user.clear(screen.getByRole("textbox", { name: /launch id/i }));
     await user.type(screen.getByRole("textbox", { name: /launch id/i }), "new-launch");
 
-    expect(screen.getByText(/no launch tasks have been generated yet/i))
+    expect(
+      screen.getByText(/no generated or ingested launch tasks are available yet/i),
+    )
       .toBeVisible();
     expect(
       screen.getByText(/no launch generation audit event has been recorded yet/i),
     ).toBeVisible();
+    expect(screen.getByText(/select a timeline task to review normalized metadata/i))
+      .toBeVisible();
     expect(screen.queryByRole("article", { name: /timeline task:/i }))
       .not.toBeInTheDocument();
+  });
+
+  it("renders ingested-only launch tasks in Timeline Control", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <LaunchPlanStarterPanel
+        initialIngestedTasks={[buildIngestedTaskRecord()]}
+        session={defaultWorkspaceSession}
+      />,
+    );
+
+    const taskRegion = screen.getByRole("region", {
+      name: /launch timeline tasks/i,
+    });
+    const task = within(taskRegion).getByRole("article", {
+      name: /timeline task: run readiness review/i,
+    });
+
+    expect(task).toHaveTextContent(/owner role: project manager/i);
+    expect(task).toHaveTextContent(/due date: t-14/i);
+    expect(task).toHaveTextContent(/handoff relevance: deployment readiness/i);
+    expect(task).toHaveTextContent(/source system: launch task/i);
+    expect(task).toHaveTextContent(/source freshness: fresh/i);
+
+    await user.click(
+      within(task).getByRole("button", {
+        name: /review details for run readiness review/i,
+      }),
+    );
+
+    const detailsRegion = screen.getByRole("region", {
+      name: /timeline task details/i,
+    });
+    expect(detailsRegion).toHaveTextContent(/run readiness review/i);
+    expect(detailsRegion).toHaveTextContent(/source: ingested launch task list/i);
+    expect(detailsRegion).toHaveTextContent(/source system: launch task/i);
+    expect(detailsRegion).toHaveTextContent(/source type: launch task/i);
+    expect(detailsRegion).toHaveTextContent(/source approval: approved/i);
+    expect(detailsRegion).toHaveTextContent(/source access: authorized/i);
+    expect(detailsRegion).toHaveTextContent(/source ingestion: complete/i);
+    expect(
+      within(detailsRegion).getByRole("link", { name: /launch task source/i }),
+    ).toHaveAttribute("href", "/sources#cardiomax-launch-tasks");
+    expect(
+      within(detailsRegion).getByRole("link", { name: /handoff workspace/i }),
+    ).toHaveAttribute("href", "/handoff");
+  });
+
+  it("does not show selected task details after filters hide the selected row", async () => {
+    const user = userEvent.setup();
+
+    render(<LaunchPlanStarterPanel session={defaultWorkspaceSession} />);
+
+    await user.click(
+      screen.getByRole("button", { name: /generate launch plan/i }),
+    );
+    await user.click(
+      screen.getByRole("button", {
+        name: /review details for complete deployment handoff review/i,
+      }),
+    );
+
+    const detailsRegion = screen.getByRole("region", {
+      name: /timeline task details/i,
+    });
+    expect(detailsRegion).toHaveTextContent(
+      /complete deployment handoff review/i,
+    );
+
+    const filtersRegion = screen.getByRole("region", {
+      name: /timeline task filters/i,
+    });
+    await user.selectOptions(
+      within(filtersRegion).getByRole("combobox", { name: /status/i }),
+      "watch",
+    );
+
+    expect(detailsRegion).not.toHaveTextContent(
+      /complete deployment handoff review/i,
+    );
+    expect(detailsRegion).toHaveTextContent(
+      /select a timeline task to review normalized metadata/i,
+    );
   });
 
   it("shows setup validation and does not create partial tasks", async () => {

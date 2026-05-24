@@ -28,7 +28,7 @@ test("starts a launch timeline from an approved Playbook template", async ({
     "Generated 2 launch tasks for CARDIOMAX Launch",
   );
   const taskRegion = page.getByRole("region", {
-    name: /generated launch tasks/i,
+    name: /launch timeline tasks/i,
   });
   await expect(
     taskRegion.getByRole("article", {
@@ -39,17 +39,58 @@ test("starts a launch timeline from an approved Playbook template", async ({
     taskRegion.getByRole("article", {
       name: /timeline task: confirm launch tier and scope/i,
     }),
+  ).toContainText("Status: Watch");
+  await expect(
+    taskRegion.getByRole("article", {
+      name: /timeline task: confirm launch tier and scope/i,
+    }),
   ).toContainText("Freshness: Watch");
   await expect(
     taskRegion.getByRole("article", {
       name: /timeline task: confirm launch tier and scope/i,
     }),
-  ).toContainText("Due date logic: Kickoff date minus 30 days");
+  ).toContainText("Due date: Kickoff date minus 30 days");
   await expect(
     taskRegion.getByRole("article", {
       name: /timeline task: complete deployment handoff review/i,
     }),
-  ).toContainText("Dependencies: task-cardiomax-pb-task-1");
+  ).toContainText("Dependencies: Depends on Confirm launch tier and scope");
+
+  const filterRegion = page.getByRole("region", {
+    name: /timeline task filters/i,
+  });
+  await filterRegion.getByRole("combobox", { name: /status/i })
+    .selectOption("watch");
+  await expect(
+    page.getByRole("region", { name: /active timeline filters/i }),
+  ).toContainText("Status: Watch");
+  await expect(page.getByText("1 of 2 timeline tasks match current filters."))
+    .toBeVisible();
+  await expect(
+    taskRegion.getByRole("article", {
+      name: /timeline task: complete deployment handoff review/i,
+    }),
+  ).toHaveCount(0);
+
+  await page.getByRole("button", { name: /clear timeline filters/i }).click();
+  await expect(page.getByText("2 of 2 timeline tasks shown.")).toBeVisible();
+  await page
+    .getByRole("button", {
+      name: /review details for complete deployment handoff review/i,
+    })
+    .click();
+
+  const detailsRegion = page.getByRole("region", {
+    name: /timeline task details/i,
+  });
+  await expect(detailsRegion).toContainText("Phase: Launch");
+  await expect(detailsRegion).toContainText("Owner: Deployment Lead");
+  await expect(detailsRegion).toContainText(
+    "Dependency task: Confirm launch tier and scope",
+  );
+  await expect(
+    detailsRegion.getByRole("link", { name: /playbook source/i }),
+  ).toHaveAttribute("href", "/sources#cardiomax-tier-2-playbook");
 
   const auditRegion = page.getByRole("region", {
     name: /latest launch generation audit event/i,
