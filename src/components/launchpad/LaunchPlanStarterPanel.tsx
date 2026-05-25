@@ -37,6 +37,15 @@ import {
   type LaunchTimelineTaskInput,
 } from "@/domain/launch-timeline";
 import {
+  applyLaunchRiskAlertAction,
+  buildLaunchRiskAlerts,
+  buildLaunchRiskDetectedAuditEvent,
+  launchRiskAlertStatusLabels,
+  type LaunchRiskAlert,
+  type LaunchRiskAlertStatus,
+  type LaunchRiskAuditEvent,
+} from "@/domain/launch-risk-alerts";
+import {
   freshnessStateLabels,
   type SourceFreshnessState,
   type SourceLedgerRecord,
@@ -92,6 +101,20 @@ const sortOptions: Array<{ label: string; value: LaunchTimelineSortKey }> = [
   { label: "Source freshness", value: "sourceFreshness" },
 ];
 
+const riskAlertCategoryLabels: Record<LaunchRiskAlert["category"], string> = {
+  critical_milestone: "Critical milestone",
+  delayed_task: "Delayed task",
+  dependency_change: "Dependency impact",
+  handoff_risk: "Handoff risk",
+  source_stale: "Source freshness",
+};
+
+const riskAlertSeverityLabels: Record<LaunchRiskAlert["severity"], string> = {
+  at_risk: "At risk",
+  critical: "Critical",
+  watch: "Watch",
+};
+
 export function LaunchPlanStarterPanel({
   initialIngestedTasks = defaultIngestedLaunchTasks,
   initialSources = defaultLaunchPlanSources,
@@ -112,6 +135,12 @@ export function LaunchPlanStarterPanel({
   const [generatedTasks, setGeneratedTasks] = useState<GeneratedLaunchTask[]>([]);
   const [latestAuditEvent, setLatestAuditEvent] =
     useState<LaunchPlanGeneratedAuditEvent>();
+  const [latestRiskAuditEvent, setLatestRiskAuditEvent] =
+    useState<LaunchRiskAuditEvent>();
+  const [riskAlertStatuses, setRiskAlertStatuses] = useState<
+    Partial<Record<string, LaunchRiskAlertStatus>>
+  >({});
+  const [selectedRiskAlertId, setSelectedRiskAlertId] = useState<string>();
   const [selectedTaskId, setSelectedTaskId] = useState<string>();
   const [sortKey, setSortKey] = useState<LaunchTimelineSortKey>("phase");
   const [statusMessage, setStatusMessage] = useState("");
@@ -158,6 +187,30 @@ export function LaunchPlanStarterPanel({
   const selectedTaskDetails = selectedTask
     ? getLaunchTimelineTaskDetails(selectedTask.taskId, timelineReview.tasks)
     : undefined;
+  const detectedRiskAlerts = useMemo(
+    () => buildLaunchRiskAlerts({ tasks: timelineReview.tasks }),
+    [timelineReview.tasks],
+  );
+  const riskAlerts = useMemo(
+    () =>
+      detectedRiskAlerts.map((alert) => ({
+        ...alert,
+        status: riskAlertStatuses[alert.alertId] ?? alert.status,
+      })),
+    [detectedRiskAlerts, riskAlertStatuses],
+  );
+  const detectedRiskAuditEvent = useMemo(
+    () =>
+      riskAlerts[0]
+        ? buildLaunchRiskDetectedAuditEvent({
+            alert: riskAlerts[0],
+            systemActor: "risk-detection-service",
+          })
+        : undefined,
+    [riskAlerts],
+  );
+  const displayedRiskAuditEvent =
+    latestRiskAuditEvent ?? detectedRiskAuditEvent;
 
   function updateSetupField<Key extends keyof LaunchPlanSetupInput>(
     key: Key,
@@ -237,6 +290,26 @@ export function LaunchPlanStarterPanel({
     setTimelineFilters(defaultLaunchTimelineFilters);
     setSortKey("phase");
     setSelectedTaskId(undefined);
+    setRiskAlertStatuses({});
+    setSelectedRiskAlertId(undefined);
+    setLatestRiskAuditEvent(undefined);
+  }
+
+  function handleRiskAlertAction(
+    alert: LaunchRiskAlert,
+    status: Exclude<LaunchRiskAlertStatus, "active">,
+  ) {
+    const result = applyLaunchRiskAlertAction({
+      actorId: session.user.name,
+      alert,
+      status,
+    });
+
+    setRiskAlertStatuses((current) => ({
+      ...current,
+      [alert.alertId]: result.alert.status,
+    }));
+    setLatestRiskAuditEvent(result.auditEvent);
   }
 
   return (
@@ -439,6 +512,18 @@ export function LaunchPlanStarterPanel({
         sortKey={sortKey}
       />
 
+      <TimelineRiskAlerts
+        alerts={riskAlerts}
+        latestAuditEvent={displayedRiskAuditEvent}
+        onAction={handleRiskAlertAction}
+        onSelectAlert={(alertId) =>
+          setSelectedRiskAlertId((current) =>
+            current === alertId ? undefined : alertId,
+          )
+        }
+        selectedAlertId={selectedRiskAlertId}
+      />
+
       <section
         aria-label="Launch timeline tasks"
         className="rounded-lg border border-border bg-card p-5 shadow-sm"
@@ -530,6 +615,313 @@ export function LaunchPlanStarterPanel({
         )}
       </section>
     </section>
+  );
+}
+
+function TimelineRiskAlerts({
+  alerts,
+  latestAuditEvent,
+  onAction,
+  onSelectAlert,
+  selectedAlertId,
+}: {
+  alerts: LaunchRiskAlert[];
+  latestAuditEvent?: LaunchRiskAuditEvent;
+  onAction: (
+    alert: LaunchRiskAlert,
+    status: Exclude<LaunchRiskAlertStatus, "active">,
+  ) => void;
+  onSelectAlert: (alertId: string) => void;
+  selectedAlertId?: string;
+}) {
+  return (
+    <>
+      <section
+        aria-label="Proactive launch risk alerts"
+        className="rounded-lg border border-border bg-card p-5 text-sm shadow-sm"
+      >
+        <div className="mb-4 flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <p className="inline-flex items-center gap-2 font-medium text-syneos-orange">
+              <AlertTriangle aria-hidden="true" className="h-4 w-4" />
+              Risk radar
+            </p>
+            <h3 className="mt-2 font-semibold">Proactive launch risk alerts</h3>
+          </div>
+          <span className="w-fit rounded-md border border-border px-3 py-1 font-medium">
+            Alert count: {alerts.length}
+          </span>
+        </div>
+
+        {alerts.length > 0 ? (
+          <div className="grid gap-3">
+            {alerts.map((alert) => (
+              <TimelineRiskAlertCard
+                alert={alert}
+                isSelected={alert.alertId === selectedAlertId}
+                key={alert.alertId}
+                onAction={onAction}
+                onSelect={() => onSelectAlert(alert.alertId)}
+              />
+            ))}
+          </div>
+        ) : (
+          <p className="text-muted-foreground">
+            No proactive risk alerts are active for the current timeline.
+          </p>
+        )}
+      </section>
+
+      <section
+        aria-label="Latest risk alert audit event"
+        className="rounded-lg border border-border bg-card p-5 text-sm shadow-sm"
+      >
+        <h3 className="font-semibold">Latest risk alert audit event</h3>
+        {latestAuditEvent ? (
+          <dl className="mt-3 grid gap-2 md:grid-cols-2 lg:grid-cols-3">
+            <AuditTerm
+              label="Action"
+              value={
+                latestAuditEvent.eventType === "task.risk_status_updated"
+                  ? "Risk status updated"
+                  : "Risk detected"
+              }
+            />
+            <AuditTerm label="Event type" value={latestAuditEvent.eventType} />
+            <AuditTerm
+              label="Actor"
+              value={
+                latestAuditEvent.actorId ??
+                latestAuditEvent.systemActor ??
+                "System"
+              }
+            />
+            <AuditTerm label="Launch ID" value={latestAuditEvent.launchId} />
+            <AuditTerm
+              label="Task ID"
+              value={latestAuditEvent.metadata.taskId}
+            />
+            <AuditTerm
+              label="Source ID"
+              value={latestAuditEvent.metadata.sourceId ?? "No source ID"}
+            />
+            <AuditTerm
+              label="Alert status"
+              value={
+                launchRiskAlertStatusLabels[
+                  latestAuditEvent.metadata.alertStatus
+                ]
+              }
+            />
+            <AuditTerm
+              label="Freshness"
+              value={latestAuditEvent.metadata.freshnessLabel}
+            />
+            <AuditTerm
+              label="Correlation ID"
+              value={latestAuditEvent.correlationId}
+            />
+          </dl>
+        ) : (
+          <p className="mt-2 text-muted-foreground">
+            No risk alert audit event has been recorded yet.
+          </p>
+        )}
+      </section>
+    </>
+  );
+}
+
+function TimelineRiskAlertCard({
+  alert,
+  isSelected,
+  onAction,
+  onSelect,
+}: {
+  alert: LaunchRiskAlert;
+  isSelected: boolean;
+  onAction: (
+    alert: LaunchRiskAlert,
+    status: Exclude<LaunchRiskAlertStatus, "active">,
+  ) => void;
+  onSelect: () => void;
+}) {
+  const detailsId = `${alert.alertId}-details`;
+
+  return (
+    <article
+      aria-label={`Risk alert: ${alert.title}`}
+      className="rounded-md border border-border bg-background px-4 py-3 leading-6"
+    >
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-normal text-syneos-orange">
+            {riskAlertCategoryLabels[alert.category]}
+          </p>
+          <h4 className="text-base font-semibold">{alert.title}</h4>
+          <p className="text-muted-foreground">{alert.whyItMatters}</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="rounded-md border border-border px-3 py-1 font-medium">
+            Status: {launchRiskAlertStatusLabels[alert.status]}
+          </span>
+          <span className="rounded-md border border-border px-3 py-1 font-medium">
+            Severity: {riskAlertSeverityLabels[alert.severity]}
+          </span>
+          <button
+            aria-controls={detailsId}
+            aria-expanded={isSelected}
+            className="inline-flex min-h-9 items-center gap-2 rounded-md border border-border px-3 py-2 font-semibold hover:bg-card"
+            onClick={onSelect}
+            type="button"
+          >
+            <SearchCheck aria-hidden="true" className="h-4 w-4" />
+            View details for {alert.title}
+          </button>
+        </div>
+      </div>
+
+      <dl className="mt-3 grid gap-2 md:grid-cols-2 lg:grid-cols-3">
+        <TaskTerm label="Freshness" value={alert.sourceSignal.freshnessLabel} />
+        <TaskTerm label="Confidence" value={stripTermPrefix(alert.confidenceLabel)} />
+        <TaskTerm label="Source" value={alert.sourceSignal.sourceName} />
+        <TaskTerm
+          label="Affected stakeholders"
+          value={formatList(alert.affectedStakeholders)}
+        />
+        <TaskTerm
+          label="Affected tasks"
+          value={formatList(alert.affectedTasks)}
+        />
+        <TaskTerm label="Recommended action" value={alert.recommendedAction} />
+      </dl>
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button
+          aria-label={`Mark monitoring for ${alert.title}`}
+          className="inline-flex min-h-9 items-center gap-2 rounded-md border border-border px-3 py-2 font-semibold hover:bg-card"
+          onClick={() => onAction(alert, "monitoring")}
+          type="button"
+        >
+          <SearchCheck aria-hidden="true" className="h-4 w-4" />
+          Monitor
+        </button>
+        <button
+          aria-label={`Snooze ${alert.title}`}
+          className="inline-flex min-h-9 items-center gap-2 rounded-md border border-border px-3 py-2 font-semibold hover:bg-card"
+          onClick={() => onAction(alert, "snoozed")}
+          type="button"
+        >
+          <CalendarDays aria-hidden="true" className="h-4 w-4" />
+          Snooze
+        </button>
+        <button
+          aria-label={`Mark needs follow-up for ${alert.title}`}
+          className="inline-flex min-h-9 items-center gap-2 rounded-md border border-border px-3 py-2 font-semibold hover:bg-card"
+          onClick={() => onAction(alert, "needs_follow_up")}
+          type="button"
+        >
+          <AlertTriangle aria-hidden="true" className="h-4 w-4" />
+          Needs follow-up
+        </button>
+        <button
+          aria-label={`Resolve ${alert.title}`}
+          className="inline-flex min-h-9 items-center gap-2 rounded-md border border-border px-3 py-2 font-semibold hover:bg-card"
+          onClick={() => onAction(alert, "resolved")}
+          type="button"
+        >
+          <CheckCircle2 aria-hidden="true" className="h-4 w-4" />
+          Resolve
+        </button>
+      </div>
+
+      {isSelected ? (
+        <section
+          aria-label={`Risk alert details: ${alert.title}`}
+          className="mt-3 rounded-md border border-border bg-card px-3 py-3"
+          id={detailsId}
+        >
+          <dl className="grid gap-2 md:grid-cols-2">
+            <TaskTerm label="What changed" value={alert.whatChanged} />
+            <TaskTerm label="Why it matters" value={alert.whyItMatters} />
+            <TaskTerm
+              label="Recommended action"
+              value={alert.recommendedAction}
+            />
+            <TaskTerm
+              label="Handoff"
+              value={alert.handoffLabel ?? "No handoff impact"}
+            />
+            <TaskTerm
+              label="Milestone"
+              value={alert.milestoneLabel ?? "No milestone label"}
+            />
+          </dl>
+
+          <section
+            aria-label={`Dependency context for ${alert.title}`}
+            className="mt-3"
+          >
+            <h5 className="font-semibold">Dependency context</h5>
+            {alert.dependencyContext.length > 0 ? (
+              <ul className="mt-2 grid gap-2">
+                {alert.dependencyContext.map((dependency) => (
+                  <li
+                    className="rounded-md border border-border bg-background px-3 py-2"
+                    key={dependency.taskId}
+                  >
+                    Dependency task: {dependency.taskName}; Status:{" "}
+                    {dependency.timelineStatusLabel}
+                    {dependency.linkedRecords.length > 0 ? (
+                      <ul className="mt-2 flex flex-wrap gap-2">
+                        {dependency.linkedRecords.map((record) => (
+                          <li key={`${dependency.taskId}-${record.label}-${record.url}`}>
+                            <a
+                              className="inline-flex min-h-9 items-center gap-2 rounded-md border border-border px-3 py-2 font-semibold hover:bg-card"
+                              href={record.url}
+                            >
+                              <LinkIcon aria-hidden="true" className="h-4 w-4" />
+                              {record.label}
+                            </a>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-2 text-muted-foreground">
+                No dependency context is linked to this alert.
+              </p>
+            )}
+          </section>
+
+          <section aria-label={`Linked records for ${alert.title}`} className="mt-3">
+            <h5 className="font-semibold">Linked records</h5>
+            {alert.linkedRecords.length > 0 ? (
+              <ul className="mt-2 flex flex-wrap gap-2">
+                {alert.linkedRecords.map((record) => (
+                  <li key={`${record.label}-${record.url}`}>
+                    <a
+                      className="inline-flex min-h-9 items-center gap-2 rounded-md border border-border px-3 py-2 font-semibold hover:bg-background"
+                      href={record.url}
+                    >
+                      <LinkIcon aria-hidden="true" className="h-4 w-4" />
+                      {record.label}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-2 text-muted-foreground">
+                No authorized linked records are available for this alert.
+              </p>
+            )}
+          </section>
+        </section>
+      ) : null}
+    </article>
   );
 }
 
@@ -991,6 +1383,26 @@ function TaskTerm({ label, value }: { label: string; value: string }) {
       </dd>
     </div>
   );
+}
+
+function formatList(items: string[]) {
+  if (items.length === 0) {
+    return "None";
+  }
+
+  if (items.length === 1) {
+    return items[0];
+  }
+
+  if (items.length === 2) {
+    return `${items[0]} and ${items[1]}`;
+  }
+
+  return `${items.slice(0, -1).join(", ")}, and ${items.at(-1)}`;
+}
+
+function stripTermPrefix(value: string) {
+  return value.replace(/^[^:]+:\s*/, "");
 }
 
 function AuditTerm({ label, value }: { label: string; value: string }) {

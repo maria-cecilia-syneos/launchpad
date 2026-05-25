@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { createPrototypeLaunchPlanSources } from "@/domain/launch-plan";
 import type { NormalizedLaunchTaskRecord } from "@/domain/launch-artifact-ingestion";
+import { createPrototypeSmartsheetStatusTasks } from "@/domain/smartsheet-status";
 import { defaultWorkspaceSession } from "@/domain/workspace";
 
 import { LaunchPlanStarterPanel } from "./LaunchPlanStarterPanel";
@@ -239,6 +240,88 @@ describe("LaunchPlanStarterPanel", () => {
     expect(
       within(detailsRegion).getByRole("link", { name: /handoff workspace/i }),
     ).toHaveAttribute("href", "/handoff");
+  });
+
+  it("surfaces proactive launch risk alerts with details, actions, and audit state", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <LaunchPlanStarterPanel
+        initialIngestedTasks={createPrototypeSmartsheetStatusTasks()}
+        session={defaultWorkspaceSession}
+      />,
+    );
+
+    const alertsRegion = screen.getByRole("region", {
+      name: /proactive launch risk alerts/i,
+    });
+    const alert = within(alertsRegion).getByRole("article", {
+      name: /risk alert: review handoff risk for resolve deployment readiness blockers/i,
+    });
+
+    expect(alert).toHaveTextContent(/status: active/i);
+    expect(alert).toHaveTextContent(/freshness: watch/i);
+    expect(alert).toHaveTextContent(/confidence: high/i);
+    expect(alert).toHaveTextContent(/deployment lead/i);
+    expect(alert).toHaveTextContent(
+      /confirm the blocker owner, expected unblock date, and handoff readiness/i,
+    );
+
+    await user.click(
+      within(alert).getByRole("button", {
+        name: /view details for review handoff risk for resolve deployment readiness blockers/i,
+      }),
+    );
+
+    const details = within(alert).getByRole("region", {
+      name: /risk alert details: review handoff risk for resolve deployment readiness blockers/i,
+    });
+    expect(details).toHaveTextContent(/what changed/i);
+    expect(details).toHaveTextContent(/why it matters/i);
+    expect(details).toHaveTextContent(/linked records/i);
+    expect(
+      within(details).getByRole("link", { name: /smartsheet source/i }),
+    ).toHaveAttribute("href", "/sources#cardiomax-approved-smartsheet-status");
+    expect(
+      within(details).getByRole("link", { name: /handoff workspace/i }),
+    ).toHaveAttribute("href", "/handoff");
+
+    const dependencyAlert = within(alertsRegion).getByRole("article", {
+      name: /risk alert: review dependency impact for verify training asset deployment/i,
+    });
+    await user.click(
+      within(dependencyAlert).getByRole("button", {
+        name: /view details for review dependency impact for verify training asset deployment/i,
+      }),
+    );
+    const dependencyDetails = within(dependencyAlert).getByRole("region", {
+      name: /risk alert details: review dependency impact for verify training asset deployment/i,
+    });
+    expect(dependencyDetails).toHaveTextContent(
+      /dependency task: resolve deployment readiness blockers/i,
+    );
+    expect(dependencyDetails).toHaveTextContent(/status: blocked/i);
+    expect(dependencyDetails).not.toHaveTextContent(/dependency task ids/i);
+    expect(dependencyDetails).not.toHaveTextContent(
+      /smartsheet-task-readiness-review/i,
+    );
+
+    await user.click(
+      within(alert).getByRole("button", {
+        name: /mark monitoring for review handoff risk for resolve deployment readiness blockers/i,
+      }),
+    );
+
+    expect(alert).toHaveTextContent(/status: monitoring/i);
+    const auditRegion = screen.getByRole("region", {
+      name: /latest risk alert audit event/i,
+    });
+    expect(auditRegion).toHaveTextContent(
+      /event type: task\.risk_status_updated/i,
+    );
+    expect(auditRegion).toHaveTextContent(/alert status: monitoring/i);
+    expect(auditRegion).toHaveTextContent(/task id: smartsheet-task-readiness-review/i);
+    expect(auditRegion).toHaveTextContent(/correlation id:/i);
   });
 
   it("scopes ingested tasks to the active launch and keeps them with generated tasks", async () => {

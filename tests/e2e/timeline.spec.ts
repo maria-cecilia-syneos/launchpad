@@ -23,6 +23,41 @@ test("starts a launch timeline from an approved Playbook template", async ({
       name: /timeline task: verify training asset deployment/i,
     }),
   ).toContainText("Source freshness: Stale");
+  const riskRegion = page.getByRole("region", {
+    name: /proactive launch risk alerts/i,
+  });
+  const readinessRiskAlert = riskRegion.getByRole("article", {
+    name: /risk alert: review handoff risk for resolve deployment readiness blockers/i,
+  });
+  await expect(readinessRiskAlert).toContainText("Status: Active");
+  await expect(readinessRiskAlert).toContainText("Freshness: Watch");
+  await expect(readinessRiskAlert).toContainText("Confidence: high");
+  const riskDetailsButton = readinessRiskAlert.getByRole("button", {
+    name: /view details for review handoff risk for resolve deployment readiness blockers/i,
+  });
+  await expect(async () => {
+    await riskDetailsButton.click();
+    await expect(riskDetailsButton).toHaveAttribute("aria-expanded", "true", {
+      timeout: 500,
+    });
+  }).toPass();
+  const riskDetails = readinessRiskAlert.getByRole("region", {
+    name: /risk alert details: review handoff risk for resolve deployment readiness blockers/i,
+  });
+  await expect(riskDetails).toContainText("What changed");
+  await expect(riskDetails).toContainText("Linked records");
+  await expect(
+    riskDetails.getByRole("link", { name: /smartsheet source/i }),
+  ).toHaveAttribute("href", "/sources#cardiomax-approved-smartsheet-status");
+  await readinessRiskAlert
+    .getByRole("button", {
+      name: /mark monitoring for review handoff risk for resolve deployment readiness blockers/i,
+    })
+    .click();
+  await expect(readinessRiskAlert).toContainText("Status: Monitoring");
+  await expect(
+    page.getByRole("region", { name: /latest risk alert audit event/i }),
+  ).toContainText("Event type: task.risk_status_updated");
   await expect(
     launchForm.getByRole("combobox", { name: /playbook template/i }),
   ).toContainText("Tier 2 Launch Playbook");
