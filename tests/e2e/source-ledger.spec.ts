@@ -12,6 +12,8 @@ test("shows registered Source Ledger records on the Sources surface", async ({
   await expect(page.getByText("CARDIOMAX Teams Decisions")).toBeVisible();
   await expect(page.getByText("CARDIOMAX Salesforce Launch Context"))
     .toBeVisible();
+  await expect(page.getByText("CARDIOMAX Approved Smartsheet Status"))
+    .toBeVisible();
   await expect(page.getByText("CARDIOMAX Tier 2 Launch Playbook"))
     .toBeVisible();
   await expect(page.getByText("CARDIOMAX Approved Asset Library"))
@@ -21,6 +23,8 @@ test("shows registered Source Ledger records on the Sources surface", async ({
     .toBeVisible();
   await expect(page.getByText("Source system: Teams")).toBeVisible();
   await expect(page.getByText("Source system: ECRM/Salesforce"))
+    .toBeVisible();
+  await expect(page.getByText("Source system: Smartsheet").first())
     .toBeVisible();
   await expect(page.getByText("Source system: Playbook")).toBeVisible();
   await expect(page.getByText("Source system: Asset")).toBeVisible();
@@ -42,7 +46,7 @@ test("searches, filters, and inspects Source Ledger details", async ({
     .fill("salesforce");
   await expect(
     page.getByRole("status", { name: /source result count/i }),
-  ).toContainText("1 of 8 source records match current filters");
+  ).toContainText("1 of 9 source records match current filters");
   await expect(page.getByText("CARDIOMAX Salesforce Launch Context"))
     .toBeVisible();
   await expect(page.getByText("CARDIOMAX Launch Plan")).toHaveCount(0);
@@ -84,7 +88,7 @@ test("hides source registration and redacts restricted details for non-admin use
     .fill("commercial");
   await expect(
     page.getByRole("status", { name: /source result count/i }),
-  ).toContainText("0 of 8 source records match current filters");
+  ).toContainText("0 of 9 source records match current filters");
   await expect(
     page.getByText("Restricted commercial launch plan"),
   ).toHaveCount(0);

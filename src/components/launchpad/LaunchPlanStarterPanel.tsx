@@ -133,12 +133,15 @@ export function LaunchPlanStarterPanel({
   const ingestedTimelineTasks = useMemo(
     () =>
       normalizeIngestedLaunchTimelineTasks(initialIngestedTasks, {
+        launchId: setup.launchId,
         role: session.user.role,
       }),
-    [initialIngestedTasks, session.user.role],
+    [initialIngestedTasks, session.user.role, setup.launchId],
   );
-  const timelineTasks: LaunchTimelineTaskInput[] =
-    generatedTasks.length > 0 ? generatedTasks : ingestedTimelineTasks;
+  const timelineTasks: LaunchTimelineTaskInput[] = useMemo(
+    () => mergeTimelineTaskInputs(generatedTasks, ingestedTimelineTasks),
+    [generatedTasks, ingestedTimelineTasks],
+  );
   const timelineReview = useMemo(
     () =>
       buildLaunchTimelineReview({
@@ -153,7 +156,7 @@ export function LaunchPlanStarterPanel({
     (task) => task.taskId === selectedTaskId,
   );
   const selectedTaskDetails = selectedTask
-    ? getLaunchTimelineTaskDetails(selectedTask.taskId, timelineReview.filteredTasks)
+    ? getLaunchTimelineTaskDetails(selectedTask.taskId, timelineReview.tasks)
     : undefined;
 
   function updateSetupField<Key extends keyof LaunchPlanSetupInput>(
@@ -1001,4 +1004,23 @@ function AuditTerm({ label, value }: { label: string; value: string }) {
       </dd>
     </div>
   );
+}
+
+function mergeTimelineTaskInputs(
+  generatedTasks: GeneratedLaunchTask[],
+  ingestedTimelineTasks: LaunchTimelineTaskInput[],
+): LaunchTimelineTaskInput[] {
+  const taskIds = new Set<string>();
+  const mergedTasks: LaunchTimelineTaskInput[] = [];
+
+  for (const task of [...generatedTasks, ...ingestedTimelineTasks]) {
+    if (taskIds.has(task.taskId)) {
+      continue;
+    }
+
+    taskIds.add(task.taskId);
+    mergedTasks.push(task);
+  }
+
+  return mergedTasks;
 }

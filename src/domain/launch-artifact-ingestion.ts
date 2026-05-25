@@ -29,6 +29,11 @@ export type LaunchArtifactSyncStatus =
   | "skipped";
 
 export type LaunchAssetApprovalState = "approved" | "draft" | "unapproved";
+export type NormalizedLaunchTaskStatus =
+  | "not_started"
+  | "in_progress"
+  | "blocked"
+  | "complete";
 
 export type PlaybookStandardTaskAdapterRecord = {
   dependencyIds?: unknown;
@@ -62,6 +67,7 @@ export type LaunchTaskAdapterRecord = {
   ownerName?: unknown;
   ownerRole?: unknown;
   phase?: unknown;
+  taskStatus?: unknown;
   taskId?: unknown;
   taskName?: unknown;
 };
@@ -112,6 +118,7 @@ type BaseLaunchArtifactRecord = {
   sourceLocationKey: string;
   sourceObjectId?: string;
   sourceSystem: SourceLedgerSystem;
+  sourceType?: SourceLedgerSourceType;
   sourceUrl?: string;
 };
 
@@ -146,6 +153,7 @@ export type NormalizedLaunchTaskRecord = BaseLaunchArtifactRecord & {
   ownerName?: string;
   ownerRole?: string;
   phase: string;
+  taskStatus?: NormalizedLaunchTaskStatus;
   taskId: string;
   taskName: string;
 };
@@ -253,6 +261,7 @@ type ArtifactBuildContext = {
   sourceLocationKey: string;
   sourceObjectId?: string;
   sourceSystem: SourceLedgerSystem;
+  sourceType?: SourceLedgerSourceType;
   sourceUrl?: string;
 };
 
@@ -800,6 +809,7 @@ function buildArtifactContext({
     sourceLocationKey: getSourceLocationKey(source) ?? source.sourceId,
     sourceObjectId: record.objectId?.trim() || source.objectId,
     sourceSystem: source.sourceSystem,
+    sourceType: source.sourceType,
     sourceUrl: getSafeRecordSourceUrl(record, source),
   };
 }
@@ -1001,6 +1011,7 @@ function normalizeLaunchTask(
     ownerName: normalizeFieldValue(task.ownerName),
     ownerRole: normalizeFieldValue(task.ownerRole),
     phase,
+    taskStatus: normalizeLaunchTaskStatus(task.taskStatus),
     taskId,
     taskName,
   };
@@ -1333,6 +1344,36 @@ function normalizeAssetApprovalState(
     value === "unapproved"
   ) {
     return value;
+  }
+
+  return undefined;
+}
+
+function normalizeLaunchTaskStatus(
+  value: unknown,
+): NormalizedLaunchTaskStatus | undefined {
+  const normalizedValue = normalizeFieldValue(value)
+    ?.replace(/[-\s]+/g, "_")
+    .toLowerCase();
+
+  if (normalizedValue === "not_started") {
+    return "not_started";
+  }
+
+  if (normalizedValue === "in_progress") {
+    return "in_progress";
+  }
+
+  if (normalizedValue === "blocked") {
+    return "blocked";
+  }
+
+  if (
+    normalizedValue === "complete" ||
+    normalizedValue === "completed" ||
+    normalizedValue === "done"
+  ) {
+    return "complete";
   }
 
   return undefined;

@@ -251,6 +251,7 @@ describe("launch artifact ingestion domain helpers", () => {
             handoffRelevance: "deployment",
             ownerRole: "Project Manager",
             phase: "Launch",
+            taskStatus: "Complete",
             taskId: "task-readiness-review",
             taskName: "Run readiness review",
           },
@@ -272,6 +273,7 @@ describe("launch artifact ingestion domain helpers", () => {
         handoffRelevance: "deployment",
         ownerRole: "Project Manager",
         phase: "Launch",
+        taskStatus: "complete",
         taskName: "Run readiness review",
       }),
     ]);

@@ -328,8 +328,8 @@ describe("source ledger domain helpers", () => {
       { key: "sourceSystem", label: "Source system", value: "Smartsheet" },
       { key: "freshnessState", label: "Freshness", value: "Stale" },
     ]);
-    expect(getSourceLedgerResultSummary(8, 1, true)).toBe(
-      "1 of 8 source records match current filters.",
+    expect(getSourceLedgerResultSummary(9, 1, true)).toBe(
+      "1 of 9 source records match current filters.",
     );
     expect(getSourceLedgerNextAction(staleSource, true)).toBe(
       "Refresh this source or verify the latest source freshness.",

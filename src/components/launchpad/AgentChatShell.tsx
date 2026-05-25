@@ -35,6 +35,10 @@ import {
   isHandoffQuestion,
 } from "@/domain/handoff-answer";
 import {
+  buildSmartsheetStatusSourceBackedAnswer,
+  isSmartsheetStatusQuestion,
+} from "@/domain/smartsheet-status";
+import {
   createPrototypeHandoffArtifacts,
   type HandoffArtifact,
   type HandoffAuditEvent,
@@ -214,19 +218,14 @@ export function AgentChatShell({
     }, 300);
 
     scheduleStatus(() => {
-      const answer = isHandoffQuestion(submittedQuestion, previousQuestion)
-        ? buildHandoffSourceBackedAnswer({
-            artifacts: activeHandoffArtifacts,
-            auditEvents: activeHandoffAuditEvents,
-            previousQuestion,
-            question: submittedQuestion,
-            session,
-          })
-        : buildPrototypeAnswer(
-            submittedQuestion,
-            launchName,
-            previousQuestion,
-          );
+      const answer = buildAgentAnswer({
+        activeHandoffArtifacts,
+        activeHandoffAuditEvents,
+        launchName,
+        previousQuestion,
+        question: submittedQuestion,
+        session,
+      });
 
       setLiveStatus("answered", `for ${launchName}.`);
       recordAuditEvents(
@@ -387,4 +386,42 @@ export function AgentChatShell({
       </aside>
     </section>
   );
+}
+
+function buildAgentAnswer({
+  activeHandoffArtifacts,
+  activeHandoffAuditEvents,
+  launchName,
+  previousQuestion,
+  question,
+  session,
+}: {
+  activeHandoffArtifacts: HandoffArtifact[];
+  activeHandoffAuditEvents: HandoffAuditEvent[];
+  launchName: string;
+  previousQuestion?: string | null;
+  question: string;
+  session: WorkspaceSession;
+}) {
+  if (isHandoffQuestion(question, previousQuestion)) {
+    return buildHandoffSourceBackedAnswer({
+      artifacts: activeHandoffArtifacts,
+      auditEvents: activeHandoffAuditEvents,
+      previousQuestion,
+      question,
+      session,
+    });
+  }
+
+  if (isSmartsheetStatusQuestion(question, previousQuestion)) {
+    return buildSmartsheetStatusSourceBackedAnswer({
+      launchId: session.launch.id,
+      launchName,
+      previousQuestion,
+      question,
+      role: session.user.role,
+    });
+  }
+
+  return buildPrototypeAnswer(question, launchName, previousQuestion);
 }

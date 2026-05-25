@@ -54,6 +54,12 @@ import {
   runPrototypeLaunchArtifactIngestion,
   type LaunchArtifactSyncAuditEvent,
 } from "@/domain/launch-artifact-ingestion";
+import {
+  canIngestSmartsheetStatusSource,
+  getSmartsheetStatusIngestionResultMessage,
+  runPrototypeSmartsheetStatusIngestion,
+  type SmartsheetStatusSyncAuditEvent,
+} from "@/domain/smartsheet-status";
 import type { WorkspaceSession } from "@/domain/workspace";
 
 import { SourceLedgerResult } from "./SourceLedgerResult";
@@ -66,7 +72,8 @@ type SourceLedgerPanelProps = {
       | SourceSyncAuditEvent
       | CollaborationSyncAuditEvent
       | SalesforceSyncAuditEvent
-      | LaunchArtifactSyncAuditEvent,
+      | LaunchArtifactSyncAuditEvent
+      | SmartsheetStatusSyncAuditEvent,
   ) => void;
   session: WorkspaceSession;
   viewState?: "ready" | "loading" | "error";
@@ -77,7 +84,8 @@ type SourceLedgerAuditEvent =
   | SourceSyncAuditEvent
   | CollaborationSyncAuditEvent
   | SalesforceSyncAuditEvent
-  | LaunchArtifactSyncAuditEvent;
+  | LaunchArtifactSyncAuditEvent
+  | SmartsheetStatusSyncAuditEvent;
 
 type RegistrationFormState = {
   sourceName: string;
@@ -318,15 +326,13 @@ export function SourceLedgerPanel({
   function handleRunIngestion(source: SourceLedgerRecord) {
     if (!canRunSourceIngestion(source)) {
       setStatusMessage(
-        "Only approved, authorized SharePoint, Word, PDF, Teams, email, Salesforce, or structured launch artifact sources can be ingested.",
+        "Only approved, authorized SharePoint, Word, PDF, Teams, email, Salesforce, Smartsheet, or structured launch artifact sources can be ingested.",
       );
       return;
     }
 
     setSyncingSourceId(source.sourceId);
-    setStatusMessage(
-      `Applying governance constraints and retrieving source context for ${source.sourceName}.`,
-    );
+    setStatusMessage(getSourceIngestionStartMessage(source));
 
     try {
       const { auditEvent, message, updatedSource } = runSourceIngestion(
@@ -754,11 +760,25 @@ function canRunSourceIngestion(source: SourceLedgerRecord) {
     canIngestMicrosoftDocumentSource(source) ||
     canIngestGovernedCollaborationSource(source) ||
     canIngestSalesforceSource(source) ||
+    canIngestSmartsheetStatusSource(source) ||
     canIngestLaunchArtifactSource(source)
   );
 }
 
 function runSourceIngestion(source: SourceLedgerRecord, actorId: string) {
+  if (canIngestSmartsheetStatusSource(source)) {
+    const result = runPrototypeSmartsheetStatusIngestion({
+      actorId,
+      source,
+    });
+
+    return {
+      auditEvent: result.auditEvent,
+      message: getSmartsheetStatusIngestionResultMessage(result),
+      updatedSource: result.updatedSource,
+    };
+  }
+
   if (canIngestLaunchArtifactSource(source)) {
     const result = runPrototypeLaunchArtifactIngestion({
       actorId,
@@ -808,6 +828,14 @@ function runSourceIngestion(source: SourceLedgerRecord, actorId: string) {
     message: getSourceIngestionResultMessage(result),
     updatedSource: result.updatedSource,
   };
+}
+
+function getSourceIngestionStartMessage(source: SourceLedgerRecord) {
+  if (source.sourceSystem === "smartsheet") {
+    return `Refreshing Smartsheet status for ${source.sourceName}.`;
+  }
+
+  return `Applying governance constraints and retrieving source context for ${source.sourceName}.`;
 }
 
 function SourceSelect({

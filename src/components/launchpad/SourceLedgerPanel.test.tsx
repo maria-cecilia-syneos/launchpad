@@ -6,6 +6,7 @@ import { SourceLedgerPanel } from "./SourceLedgerPanel";
 import type { CollaborationSyncAuditEvent } from "@/domain/collaboration-ingestion";
 import type { LaunchArtifactSyncAuditEvent } from "@/domain/launch-artifact-ingestion";
 import type { SalesforceSyncAuditEvent } from "@/domain/salesforce-ingestion";
+import type { SmartsheetStatusSyncAuditEvent } from "@/domain/smartsheet-status";
 import type { SourceSyncAuditEvent } from "@/domain/source-ingestion";
 import {
   buildSourceRegistrationRecord,
@@ -31,7 +32,8 @@ type SourceLedgerAuditEvent =
   | SourceSyncAuditEvent
   | CollaborationSyncAuditEvent
   | SalesforceSyncAuditEvent
-  | LaunchArtifactSyncAuditEvent;
+  | LaunchArtifactSyncAuditEvent
+  | SmartsheetStatusSyncAuditEvent;
 
 function expectStatusRegionToHaveText(pattern: RegExp) {
   expect(
@@ -331,7 +333,7 @@ describe("SourceLedgerPanel", () => {
     );
 
     expect(screen.getByRole("status", { name: /source result count/i }))
-      .toHaveTextContent(/1 of 8 source records match current filters/i);
+      .toHaveTextContent(/1 of 9 source records match current filters/i);
     expect(screen.getByText(/search: salesforce/i)).toBeVisible();
     expect(screen.getByRole("article", {
       name: /cardiomax salesforce launch context/i,
@@ -363,7 +365,7 @@ describe("SourceLedgerPanel", () => {
     await user.click(screen.getByRole("button", { name: /clear filters/i }));
 
     expect(screen.getByRole("status", { name: /source result count/i }))
-      .toHaveTextContent(/8 source records available/i);
+      .toHaveTextContent(/9 source records available/i);
     expect(screen.getByRole("article", {
       name: /cardiomax deployment handoff/i,
     })).toBeVisible();
@@ -429,7 +431,7 @@ describe("SourceLedgerPanel", () => {
     );
 
     expect(screen.getByRole("status", { name: /source result count/i }))
-      .toHaveTextContent(/0 of 8 source records match current filters/i);
+      .toHaveTextContent(/0 of 9 source records match current filters/i);
     expect(screen.getByText(/no sources match current filters/i)).toBeVisible();
     expect(screen.queryByText(/restricted commercial launch plan/i))
       .not.toBeInTheDocument();
@@ -845,6 +847,159 @@ describe("SourceLedgerPanel", () => {
     );
     expect(document.body).not.toHaveTextContent(/bearerToken/i);
     expect(document.body).not.toHaveTextContent(/rawSalesforcePayload/i);
+  });
+
+  it("runs read-only Smartsheet status ingestion for eligible sheet sources", async () => {
+    const user = userEvent.setup();
+    const onSourceAuditEvent = vi.fn<(event: SourceLedgerAuditEvent) => void>();
+    const smartsheetSource = buildSourceRegistrationRecord(
+      {
+        accessState: "authorized",
+        approvalState: "approved",
+        freshnessState: "watch",
+        ingestionStatus: "ready",
+        objectId: "smartsheet-cardiomax-approved-status",
+        owningTeam: "Project Management",
+        sourceName: "CARDIOMAX Approved Smartsheet Status",
+        sourceSystem: "smartsheet",
+        sourceType: "smartsheet_sheet",
+        sourceUrl: "/sources#cardiomax-approved-smartsheet-status",
+      },
+      {
+        registeredAt: "2026-05-21T12:12:00.000Z",
+        sourceId: "src-cardiomax-smartsheet-approved-status",
+      },
+    );
+
+    render(
+      <SourceLedgerPanel
+        initialSources={[smartsheetSource]}
+        onSourceAuditEvent={onSourceAuditEvent}
+        session={adminSession}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", {
+        name: /run ingestion for cardiomax approved smartsheet status/i,
+      }),
+    );
+
+    expectStatusRegionToHaveText(
+      /3 smartsheet project status records prepared for retrieval/i,
+    );
+    const smartsheetResult = screen.getByRole("article", {
+      name: /cardiomax approved smartsheet status/i,
+    });
+    expect(within(smartsheetResult).getByText(/freshness: stale/i))
+      .toBeVisible();
+    expect(within(smartsheetResult).getByText(/ingestion: complete/i))
+      .toBeVisible();
+    expect(smartsheetResult).toHaveTextContent(/1 record marked source-stale/i);
+    expect(onSourceAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: "source.sync_completed",
+        metadata: expect.objectContaining({
+          recordCounts: expect.objectContaining({
+            launchTasks: 3,
+            rows: 3,
+            staleRows: 1,
+          }),
+          sourceId: "src-cardiomax-smartsheet-approved-status",
+          sourceSystem: "smartsheet",
+          syncStatus: "completed",
+        }),
+      }),
+    );
+    expect(document.body).not.toHaveTextContent(/rawSmartsheetPayload/i);
+    expect(document.body).not.toHaveTextContent(/credentialToken/i);
+  });
+
+  it("shows user-safe Smartsheet incomplete and connector failure states", async () => {
+    const user = userEvent.setup();
+    const onSourceAuditEvent = vi.fn<(event: SourceLedgerAuditEvent) => void>();
+    const incompleteSmartsheetSource = buildSourceRegistrationRecord(
+      {
+        accessState: "authorized",
+        approvalState: "approved",
+        freshnessState: "watch",
+        ingestionStatus: "ready",
+        objectId: "missing-fields-smartsheet-status",
+        owningTeam: "Project Management",
+        sourceName: "CARDIOMAX incomplete Smartsheet status",
+        sourceSystem: "smartsheet",
+        sourceType: "smartsheet_sheet",
+      },
+      {
+        registeredAt: "2026-05-21T12:14:00.000Z",
+        sourceId: "src-cardiomax-incomplete-smartsheet-status",
+      },
+    );
+    const connectorFailureSource = buildSourceRegistrationRecord(
+      {
+        accessState: "authorized",
+        approvalState: "approved",
+        freshnessState: "watch",
+        ingestionStatus: "ready",
+        objectId: "connector-failure-smartsheet-status",
+        owningTeam: "Project Management",
+        sourceName: "CARDIOMAX Smartsheet connector failure source",
+        sourceSystem: "smartsheet",
+        sourceType: "smartsheet_sheet",
+      },
+      {
+        registeredAt: "2026-05-21T12:16:00.000Z",
+        sourceId: "src-cardiomax-smartsheet-connector-failure",
+      },
+    );
+
+    render(
+      <SourceLedgerPanel
+        initialSources={[incompleteSmartsheetSource, connectorFailureSource]}
+        onSourceAuditEvent={onSourceAuditEvent}
+        session={adminSession}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", {
+        name: /run ingestion for cardiomax incomplete smartsheet status/i,
+      }),
+    );
+
+    expectStatusRegionToHaveText(/smartsheet project status ingestion partially completed/i);
+    const incompleteResult = screen.getByRole("article", {
+      name: /cardiomax incomplete smartsheet status/i,
+    });
+    expect(within(incompleteResult).getByText(/freshness: watch/i))
+      .toBeVisible();
+    expect(within(incompleteResult).getByText(/ingestion: incomplete/i))
+      .toBeVisible();
+
+    await user.click(
+      screen.getByRole("button", {
+        name: /run ingestion for cardiomax smartsheet connector failure source/i,
+      }),
+    );
+
+    expectStatusRegionToHaveText(/smartsheet project status could not be retrieved/i);
+    const failureResult = screen.getByRole("article", {
+      name: /cardiomax smartsheet connector failure source/i,
+    });
+    expect(within(failureResult).getByText(/freshness: stale/i)).toBeVisible();
+    expect(within(failureResult).getByText(/ingestion: failed/i)).toBeVisible();
+    expect(failureResult).not.toHaveTextContent(/connector stack/i);
+    expect(onSourceAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: "source.sync_failed",
+        metadata: expect.objectContaining({
+          reasonState: "connector_unavailable",
+          sourceId: "src-cardiomax-smartsheet-connector-failure",
+          sourceSystem: "smartsheet",
+          syncStatus: "failed",
+        }),
+      }),
+    );
   });
 
   it("shows a user-safe restricted state for Salesforce sync", async () => {

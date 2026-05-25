@@ -168,23 +168,45 @@ export const defaultLaunchTimelineFilters: LaunchTimelineFilters = {
 
 export function normalizeIngestedLaunchTimelineTasks(
   records: NormalizedLaunchTaskRecord[],
-  { role = "project-manager" }: { role?: WorkspaceRole } = {},
+  {
+    launchId,
+    role = "project-manager",
+  }: { launchId?: string; role?: WorkspaceRole } = {},
 ): LaunchTimelineTaskInput[] {
-  return records.map((record) => ({
-    blockerState: record.blockerState,
-    criticalPath: record.criticalPath,
-    dependencyTaskIds: record.dependencyIds,
-    dueDateLogic: record.dueDateLabel ?? record.dueDateRule,
-    handoffGate: record.handoffRelevance,
-    handoffRecordUrl: record.handoffRelevance ? "/handoff" : undefined,
-    launchId: record.launchId ?? "",
-    ownerRole: record.ownerRole ?? record.ownerName ?? "",
-    phase: record.phase,
-    sourceProvenance: getIngestedTaskSourceProvenance(record, role),
-    status: getIngestedLaunchTaskStatus(record),
-    taskId: record.taskId,
-    taskName: record.taskName,
-  }));
+  const scopedLaunchId = launchId?.trim();
+
+  return records.flatMap((record) => {
+    if (
+      scopedLaunchId &&
+      record.launchId?.trim() !== scopedLaunchId
+    ) {
+      return [];
+    }
+
+    if (role !== "admin" && isRestrictedIngestedTaskSource(record)) {
+      return [];
+    }
+
+    const handoffGate = normalizeHandoffGateLabel(record.handoffRelevance);
+
+    return [
+      {
+        blockerState: record.blockerState,
+        criticalPath: record.criticalPath,
+        dependencyTaskIds: record.dependencyIds,
+        dueDateLogic: record.dueDateLabel ?? record.dueDateRule,
+        handoffGate,
+        handoffRecordUrl: handoffGate ? "/handoff" : undefined,
+        launchId: record.launchId ?? "",
+        ownerRole: record.ownerRole ?? record.ownerName ?? "",
+        phase: record.phase,
+        sourceProvenance: getIngestedTaskSourceProvenance(record, role),
+        status: getIngestedLaunchTaskStatus(record),
+        taskId: record.taskId,
+        taskName: record.taskName,
+      },
+    ];
+  });
 }
 
 const statusSortOrder: Record<LaunchTimelineTaskStatus, number> = {
@@ -377,25 +399,43 @@ function buildLaunchTimelineTask(
   allTasks: LaunchTimelineTaskInput[],
   role: WorkspaceRole,
 ): LaunchTimelineTask {
-  const ownerLabel = task.ownerRole.trim() || "Unassigned";
-  const dueDateLabel = task.dueDateLogic?.trim() || "No due date logic";
-  const dependencySummary = getDependencySummary(task, allTasks);
-  const hasBlocker = taskHasStructuredBlocker(task);
-  const blockerSummary = getBlockerSummary(task);
-  const timelineStatus = getTimelineStatus(task, ownerLabel, dueDateLabel);
-  const handoffRelevance = task.handoffGate ?? "No handoff gate";
-  const sourceFreshnessLabel =
-    freshnessStateLabels[task.sourceProvenance.freshnessState];
-  const canOpenLinkedRecord = canOpenLinkedTaskRecord(task.sourceProvenance, role);
-  const canOpenSourceRecord =
-    canOpenLinkedRecord && Boolean(task.sourceProvenance.sourceUrl);
-  const timelineTask: LaunchTimelineTask = {
+  const normalizedTask = {
     ...task,
+    handoffGate: normalizeHandoffGateLabel(task.handoffGate),
+    handoffRecordUrl: normalizeLinkedRecordUrl(task.handoffRecordUrl),
+  };
+  const ownerLabel = normalizedTask.ownerRole.trim() || "Unassigned";
+  const dueDateLabel = normalizedTask.dueDateLogic?.trim() || "No due date logic";
+  const dependencySummary = getDependencySummary(normalizedTask, allTasks);
+  const hasBlocker = taskHasStructuredBlocker(normalizedTask);
+  const blockerSummary = getBlockerSummary(normalizedTask);
+  const timelineStatus = getTimelineStatus(
+    normalizedTask,
+    ownerLabel,
+    dueDateLabel,
+  );
+  const handoffRelevance = normalizedTask.handoffGate ?? "No handoff gate";
+  const sourceFreshnessLabel =
+    freshnessStateLabels[normalizedTask.sourceProvenance.freshnessState];
+  const canOpenLinkedRecord = canOpenLinkedTaskRecord(
+    normalizedTask.sourceProvenance,
+    role,
+  );
+  const canOpenSourceRecord =
+    canOpenLinkedRecord &&
+    Boolean(normalizeLinkedRecordUrl(normalizedTask.sourceProvenance.sourceUrl));
+  const canOpenHandoffRecord =
+    canOpenLinkedRecord &&
+    Boolean(normalizedTask.handoffGate && normalizedTask.handoffRecordUrl);
+  const timelineTask: LaunchTimelineTask = {
+    ...normalizedTask,
     attentionSignals: [],
     blockerSummary,
-    canOpenHandoffRecord: canOpenLinkedRecord,
+    canOpenHandoffRecord,
     canOpenSourceRecord,
-    criticalPathLabel: `Critical path: ${task.criticalPath ? "Yes" : "No"}`,
+    criticalPathLabel: `Critical path: ${
+      normalizedTask.criticalPath ? "Yes" : "No"
+    }`,
     dependencySummary,
     dueDateLabel,
     hasBlocker,
@@ -440,7 +480,7 @@ function getTimelineStatus(
     return "at_risk";
   }
 
-  if (task.criticalPath || task.handoffGate) {
+  if (task.criticalPath || hasHandoffGate(task)) {
     return "watch";
   }
 
@@ -533,7 +573,7 @@ function getAttentionSignals(task: LaunchTimelineTask) {
     taskHasSourceFreshnessRisk(task) ? "Source-stale" : undefined,
     task.criticalPath ? "Critical path" : undefined,
     task.dependencyTaskIds.length > 0 ? "Dependency" : undefined,
-    task.handoffGate ? "Handoff gate" : undefined,
+    hasHandoffGate(task) ? "Handoff gate" : undefined,
     task.sourceProvenance.freshnessState === "watch"
       ? "Freshness watch"
       : undefined,
@@ -705,7 +745,7 @@ function taskMatchesRiskFilter(
   }
 
   if (riskFilter === "handoff") {
-    return Boolean(task.handoffGate);
+    return hasHandoffGate(task);
   }
 
   return taskHasSourceFreshnessRisk(task);
@@ -729,7 +769,7 @@ function compareBySortKey(
   }
 
   if (sortKey === "dueDate") {
-    return left.dueDateLabel.localeCompare(right.dueDateLabel);
+    return compareDueDateLabels(left.dueDateLabel, right.dueDateLabel);
   }
 
   if (sortKey === "sourceFreshness") {
@@ -741,18 +781,20 @@ function compareBySortKey(
 
 function getLinkedRecords(task: LaunchTimelineTask): LaunchTimelineLinkedRecord[] {
   const records: LaunchTimelineLinkedRecord[] = [];
+  const sourceUrl = normalizeLinkedRecordUrl(task.sourceProvenance.sourceUrl);
+  const handoffUrl = normalizeLinkedRecordUrl(task.handoffRecordUrl);
 
-  if (task.canOpenSourceRecord && task.sourceProvenance.sourceUrl) {
+  if (task.canOpenSourceRecord && sourceUrl) {
     records.push({
       label: `${task.sourceProvenance.sourceSystemLabel} source`,
-      url: task.sourceProvenance.sourceUrl,
+      url: sourceUrl,
     });
   }
 
-  if (task.handoffGate && task.canOpenHandoffRecord) {
+  if (hasHandoffGate(task) && task.canOpenHandoffRecord && handoffUrl) {
     records.push({
       label: "Handoff workspace",
-      url: task.handoffRecordUrl ?? "/handoff",
+      url: handoffUrl,
     });
   }
 
@@ -773,7 +815,15 @@ function canOpenLinkedTaskRecord(
 function getIngestedLaunchTaskStatus(
   record: NormalizedLaunchTaskRecord,
 ): LaunchTaskStatus {
-  return hasBlockingStateLabel(record.blockerState) ? "blocked" : "not_started";
+  if (hasBlockingStateLabel(record.blockerState)) {
+    return "blocked";
+  }
+
+  if (record.taskStatus) {
+    return record.taskStatus;
+  }
+
+  return "not_started";
 }
 
 function getIngestedTaskSourceProvenance(
@@ -812,8 +862,8 @@ function getIngestedTaskSourceProvenance(
     sourceId: record.sourceId,
     sourceName: getIngestedTaskSourceName(record),
     sourceSystemLabel: sourceSystemLabels[record.sourceSystem],
-    sourceTypeLabel: sourceTypeLabels.launch_task,
-    sourceUrl: record.sourceUrl,
+    sourceTypeLabel: sourceTypeLabels[record.sourceType ?? "launch_task"],
+    sourceUrl: normalizeLinkedRecordUrl(record.sourceUrl),
   };
 }
 
@@ -830,6 +880,85 @@ function getIngestedTaskSourceName(record: NormalizedLaunchTaskRecord) {
   return record.sourceSystem === "task"
     ? "Ingested launch task list"
     : `${sourceSystemLabels[record.sourceSystem]} launch task source`;
+}
+
+function hasHandoffGate(task: Pick<LaunchTimelineTaskInput, "handoffGate">) {
+  return Boolean(normalizeHandoffGateLabel(task.handoffGate));
+}
+
+function normalizeHandoffGateLabel(value?: string) {
+  const normalizedValue = value?.trim();
+
+  if (!normalizedValue) {
+    return undefined;
+  }
+
+  if (
+    [
+      "n/a",
+      "no",
+      "no handoff",
+      "none",
+      "not applicable",
+      "not required",
+    ].includes(normalizedValue.toLowerCase())
+  ) {
+    return undefined;
+  }
+
+  return normalizedValue;
+}
+
+function normalizeLinkedRecordUrl(value?: string) {
+  const trimmedValue = value?.trim();
+
+  if (
+    !trimmedValue ||
+    trimmedValue.startsWith("//") ||
+    trimmedValue.includes("\\") ||
+    /[\u0000-\u001f]/.test(trimmedValue)
+  ) {
+    return undefined;
+  }
+
+  return trimmedValue.startsWith("/") ? trimmedValue : undefined;
+}
+
+function compareDueDateLabels(left: string, right: string) {
+  const leftValue = getDueDateSortValue(left);
+  const rightValue = getDueDateSortValue(right);
+
+  if (leftValue !== rightValue) {
+    return leftValue - rightValue;
+  }
+
+  return left.localeCompare(right);
+}
+
+function getDueDateSortValue(label: string) {
+  const normalizedLabel = label.trim().toLowerCase();
+  const tOffsetMatch = normalizedLabel.match(/^t\s*([+-])\s*(\d+)$/);
+
+  if (tOffsetMatch) {
+    const offset = Number(tOffsetMatch[2]);
+    return tOffsetMatch[1] === "-" ? -offset : offset;
+  }
+
+  const minusMatch = normalizedLabel.match(/minus\s+(\d+)\s+days?/);
+
+  if (minusMatch) {
+    return -Number(minusMatch[1]);
+  }
+
+  const plusMatch = normalizedLabel.match(/plus\s+(\d+)\s+days?/);
+
+  if (plusMatch) {
+    return Number(plusMatch[1]);
+  }
+
+  return normalizedLabel.includes("kickoff date")
+    ? 0
+    : Number.POSITIVE_INFINITY;
 }
 
 function uniqueValues<T extends string>(values: T[]) {

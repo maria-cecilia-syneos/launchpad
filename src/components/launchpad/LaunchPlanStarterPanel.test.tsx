@@ -241,6 +241,121 @@ describe("LaunchPlanStarterPanel", () => {
     ).toHaveAttribute("href", "/handoff");
   });
 
+  it("scopes ingested tasks to the active launch and keeps them with generated tasks", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <LaunchPlanStarterPanel
+        initialIngestedTasks={[
+          buildIngestedTaskRecord(),
+          buildIngestedTaskRecord({
+            launchId: "other-launch",
+            taskId: "task-other-launch",
+            taskName: "Other launch task",
+          }),
+        ]}
+        session={defaultWorkspaceSession}
+      />,
+    );
+
+    const taskRegion = screen.getByRole("region", {
+      name: /launch timeline tasks/i,
+    });
+    expect(
+      within(taskRegion).getByRole("article", {
+        name: /timeline task: run readiness review/i,
+      }),
+    ).toBeVisible();
+    expect(
+      within(taskRegion).queryByRole("article", {
+        name: /timeline task: other launch task/i,
+      }),
+    ).not.toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", { name: /generate launch plan/i }),
+    );
+
+    expect(screen.getByText(/3 of 3 timeline tasks shown/i)).toBeVisible();
+    expect(
+      within(taskRegion).getByRole("article", {
+        name: /timeline task: confirm launch tier and scope/i,
+      }),
+    ).toBeVisible();
+    expect(
+      within(taskRegion).getByRole("article", {
+        name: /timeline task: run readiness review/i,
+      }),
+    ).toBeVisible();
+    expect(
+      within(taskRegion).queryByRole("article", {
+        name: /timeline task: other launch task/i,
+      }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("resolves selected dependency details from the full task set when filters hide dependencies", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <LaunchPlanStarterPanel
+        initialIngestedTasks={[
+          buildIngestedTaskRecord({
+            criticalPath: false,
+            handoffRelevance: undefined,
+            ownerRole: "Dependency Owner",
+            taskId: "task-source-dependency",
+            taskName: "Confirm source dependency",
+            taskStatus: "complete",
+          }),
+          buildIngestedTaskRecord({
+            dependencyIds: ["task-source-dependency"],
+            ownerRole: "Project Manager",
+            taskId: "task-dependent-review",
+            taskName: "Review dependent task",
+          }),
+        ]}
+        session={defaultWorkspaceSession}
+      />,
+    );
+
+    const taskRegion = screen.getByRole("region", {
+      name: /launch timeline tasks/i,
+    });
+    await user.click(
+      within(taskRegion).getByRole("button", {
+        name: /review details for review dependent task/i,
+      }),
+    );
+
+    const filtersRegion = screen.getByRole("region", {
+      name: /timeline task filters/i,
+    });
+    await user.selectOptions(
+      within(filtersRegion).getByRole("combobox", { name: /owner/i }),
+      "Project Manager",
+    );
+
+    expect(
+      within(taskRegion).getByRole("article", {
+        name: /timeline task: review dependent task/i,
+      }),
+    ).toBeVisible();
+    expect(
+      within(taskRegion).queryByRole("article", {
+        name: /timeline task: confirm source dependency/i,
+      }),
+    ).not.toBeInTheDocument();
+
+    const detailsRegion = screen.getByRole("region", {
+      name: /timeline task details/i,
+    });
+    expect(detailsRegion).toHaveTextContent(
+      /dependency task: confirm source dependency/i,
+    );
+    expect(detailsRegion).not.toHaveTextContent(/missing dependency reference/i);
+  });
+
   it("does not show selected task details after filters hide the selected row", async () => {
     const user = userEvent.setup();
 

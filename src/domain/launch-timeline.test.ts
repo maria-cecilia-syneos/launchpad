@@ -273,6 +273,132 @@ describe("launch timeline domain", () => {
     );
   });
 
+  it("scopes ingested task records by launch and hides restricted rows from non-admins", () => {
+    const ingestedTasks = normalizeIngestedLaunchTimelineTasks(
+      [
+        buildIngestedTaskRecord(),
+        buildIngestedTaskRecord({
+          launchId: "other-launch",
+          taskId: "task-other-launch",
+          taskName: "Other launch task",
+        }),
+        buildIngestedTaskRecord({
+          accessState: "restricted",
+          approvalState: "restricted",
+          launchTaskRecordId: "launchtask-restricted",
+          sourceId: "src-restricted-launch-tasks",
+          taskId: "task-restricted-ingested",
+          taskName: "Restricted ingested task",
+        }),
+      ],
+      {
+        launchId: "cardiomax",
+        role: "project-manager",
+      },
+    );
+    const adminTasks = normalizeIngestedLaunchTimelineTasks(
+      [
+        buildIngestedTaskRecord({
+          accessState: "restricted",
+          approvalState: "restricted",
+          taskId: "task-restricted-ingested",
+          taskName: "Restricted ingested task",
+        }),
+      ],
+      {
+        launchId: "cardiomax",
+        role: "admin",
+      },
+    );
+
+    expect(ingestedTasks.map((task) => task.taskId)).toEqual([
+      "task-readiness-review",
+    ]);
+    expect(JSON.stringify(ingestedTasks)).not.toContain("Restricted ingested task");
+    expect(JSON.stringify(ingestedTasks)).not.toContain("Other launch task");
+    expect(adminTasks).toEqual([
+      expect.objectContaining({
+        taskId: "task-restricted-ingested",
+        taskName: "Restricted ingested task",
+      }),
+    ]);
+  });
+
+  it("preserves ingested task status and normalizes empty handoff values", () => {
+    const ingestedTasks = normalizeIngestedLaunchTimelineTasks([
+      buildIngestedTaskRecord({
+        criticalPath: false,
+        handoffRelevance: "No handoff",
+        sourceUrl: undefined,
+        taskId: "task-complete-from-status",
+        taskName: "Complete from status",
+        taskStatus: "complete",
+      }),
+    ]);
+    const review = buildLaunchTimelineReview({
+      filters: {
+        ...defaultLaunchTimelineFilters,
+        handoffRelevance: "has_handoff",
+      },
+      tasks: ingestedTasks,
+    });
+    const unfilteredReview = buildLaunchTimelineReview({ tasks: ingestedTasks });
+    const details = getLaunchTimelineTaskDetails(
+      "task-complete-from-status",
+      unfilteredReview.tasks,
+    );
+
+    expect(unfilteredReview.tasks[0]).toMatchObject({
+      handoffGate: undefined,
+      handoffRelevance: "No handoff gate",
+      timelineStatus: "complete",
+    });
+    expect(review.filteredTasks).toEqual([]);
+    expect(details?.linkedRecords).toEqual([]);
+  });
+
+  it("normalizes linked record URLs before exposing task detail links", () => {
+    const ingestedTasks = normalizeIngestedLaunchTimelineTasks([
+      buildIngestedTaskRecord({
+        handoffRelevance: "No handoff",
+        sourceUrl: "javascript:alert(1)",
+        taskId: "task-unsafe-link",
+        taskName: "Unsafe source link",
+      }),
+    ]);
+    const review = buildLaunchTimelineReview({ tasks: ingestedTasks });
+    const details = getLaunchTimelineTaskDetails("task-unsafe-link", review.tasks);
+
+    expect(details?.linkedRecords).toEqual([]);
+    expect(JSON.stringify(details)).not.toContain("javascript:");
+  });
+
+  it("sorts T-offset due date labels by timeline order", () => {
+    const review = buildLaunchTimelineReview({
+      tasks: [
+        buildTimelineTaskInput({
+          dueDateLogic: "T-2",
+          taskId: "task-t-minus-2",
+          taskName: "T minus two",
+        }),
+        buildTimelineTaskInput({
+          dueDateLogic: "T-14",
+          taskId: "task-t-minus-14",
+          taskName: "T minus fourteen",
+        }),
+        buildTimelineTaskInput({
+          dueDateLogic: "T+1",
+          taskId: "task-t-plus-1",
+          taskName: "T plus one",
+        }),
+      ],
+    });
+
+    expect(
+      sortLaunchTimelineTasks(review.tasks, "dueDate").map((task) => task.taskId),
+    ).toEqual(["task-t-minus-14", "task-t-minus-2", "task-t-plus-1"]);
+  });
+
   it("keeps missing dependency references visible without exposing raw IDs", () => {
     const task = buildTimelineTaskInput({
       dependencyTaskIds: ["raw-missing-dependency-id"],
@@ -336,6 +462,22 @@ describe("launch timeline domain", () => {
       "awaiting_input",
       "source_stale",
     ]);
+  });
+
+  it("keeps blocker state higher priority than ingested task status", () => {
+    const ingestedTasks = normalizeIngestedLaunchTimelineTasks([
+      buildIngestedTaskRecord({
+        blockerState: "Client kickoff window not confirmed",
+        taskStatus: "complete",
+      }),
+    ]);
+    const review = buildLaunchTimelineReview({ tasks: ingestedTasks });
+
+    expect(review.tasks[0]).toMatchObject({
+      blockerSummary: "Blocked: Client kickoff window not confirmed",
+      timelineStatus: "blocked",
+      timelineStatusLabel: "Blocked",
+    });
   });
 
   it("filters source-stale risk from provenance even when another status has precedence", () => {

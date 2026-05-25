@@ -86,6 +86,51 @@ describe("AgentChatShell", () => {
     );
   });
 
+  it("answers deployment status questions from normalized Smartsheet status", async () => {
+    const user = userEvent.setup();
+    const onAuditEventsRecorded = vi.fn();
+
+    render(
+      <AgentChatShell
+        onAuditEventsRecorded={onAuditEventsRecorded}
+        session={defaultWorkspaceSession}
+      />,
+    );
+
+    await user.type(
+      screen.getByRole("textbox", { name: /ask launchpad/i }),
+      "What is the deployment status?",
+    );
+    await user.click(screen.getByRole("button", { name: /ask launchpad/i }));
+
+    await screen.findByRole("heading", { name: /smartsheet project status/i });
+    expect(screen.getByText(/state: source stale/i)).toBeVisible();
+    expect(screen.getByText(/1 blocked task/i)).toBeVisible();
+    expect(
+      screen.getAllByText(/resolve deployment readiness blockers/i).length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.getByRole("link", {
+        name: /^citation 1: smartsheet project status from smartsheet$/i,
+      }),
+    ).toHaveAttribute("href", "/sources#cardiomax-approved-smartsheet-status");
+    expect(onAuditEventsRecorded).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          eventType: "answer.created",
+          metadata: expect.objectContaining({
+            answerId: "CARDIOMAX Launch-smartsheet-status",
+            citedSourceIds: ["src-cardiomax-smartsheet-approved-status"],
+          }),
+        }),
+        expect.objectContaining({
+          eventType: "answer.source_cited",
+          sourceSystem: "Smartsheet",
+        }),
+      ]),
+    );
+  });
+
   it("supports keyboard submit while preserving follow-up context", async () => {
     const user = userEvent.setup();
 

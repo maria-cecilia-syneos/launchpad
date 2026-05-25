@@ -10,6 +10,19 @@ test("starts a launch timeline from an approved Playbook template", async ({
     name: /start launch from playbook/i,
   });
   await expect(launchForm).toBeVisible();
+  const taskRegion = page.getByRole("region", {
+    name: /launch timeline tasks/i,
+  });
+  await expect(
+    taskRegion.getByRole("article", {
+      name: /timeline task: resolve deployment readiness blockers/i,
+    }),
+  ).toContainText("Source system: Smartsheet");
+  await expect(
+    taskRegion.getByRole("article", {
+      name: /timeline task: verify training asset deployment/i,
+    }),
+  ).toContainText("Source freshness: Stale");
   await expect(
     launchForm.getByRole("combobox", { name: /playbook template/i }),
   ).toContainText("Tier 2 Launch Playbook");
@@ -27,9 +40,6 @@ test("starts a launch timeline from an approved Playbook template", async ({
   await expect(page.getByRole("status")).toContainText(
     "Generated 2 launch tasks for CARDIOMAX Launch",
   );
-  const taskRegion = page.getByRole("region", {
-    name: /launch timeline tasks/i,
-  });
   await expect(
     taskRegion.getByRole("article", {
       name: /timeline task: confirm launch tier and scope/i,
@@ -55,6 +65,11 @@ test("starts a launch timeline from an approved Playbook template", async ({
       name: /timeline task: complete deployment handoff review/i,
     }),
   ).toContainText("Dependencies: Depends on Confirm launch tier and scope");
+  await expect(
+    taskRegion.getByRole("article", {
+      name: /timeline task: resolve deployment readiness blockers/i,
+    }),
+  ).toContainText("Source system: Smartsheet");
 
   const filterRegion = page.getByRole("region", {
     name: /timeline task filters/i,
@@ -64,7 +79,7 @@ test("starts a launch timeline from an approved Playbook template", async ({
   await expect(
     page.getByRole("region", { name: /active timeline filters/i }),
   ).toContainText("Status: Watch");
-  await expect(page.getByText("1 of 2 timeline tasks match current filters."))
+  await expect(page.getByText("1 of 5 timeline tasks match current filters."))
     .toBeVisible();
   await expect(
     taskRegion.getByRole("article", {
@@ -73,7 +88,7 @@ test("starts a launch timeline from an approved Playbook template", async ({
   ).toHaveCount(0);
 
   await page.getByRole("button", { name: /clear timeline filters/i }).click();
-  await expect(page.getByText("2 of 2 timeline tasks shown.")).toBeVisible();
+  await expect(page.getByText("5 of 5 timeline tasks shown.")).toBeVisible();
   await page
     .getByRole("button", {
       name: /review details for complete deployment handoff review/i,
