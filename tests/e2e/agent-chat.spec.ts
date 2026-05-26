@@ -119,6 +119,30 @@ test("answers source-backed handoff readiness questions", async ({ page }) => {
   ).toBeVisible();
 });
 
+test("answers source-backed launch execution risk questions", async ({
+  page,
+}) => {
+  await page.goto("/agent");
+
+  await page
+    .getByRole("textbox", { name: /ask launchpad/i })
+    .fill("Which risks are open?");
+  await page.getByRole("button", { name: /ask launchpad/i }).click();
+
+  await expect(page.getByText(/Launch execution and risk status/i))
+    .toBeVisible();
+  await expect(page.getByText(/State: Source stale/i)).toBeVisible();
+  await expect(page.getByText(/3 active risk alerts/i)).toBeVisible();
+  await expect(
+    page.getByText(/Resolve deployment readiness blockers is owned by Deployment Lead/i),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("link", {
+      name: /^citation 1: smartsheet launch task source from smartsheet$/i,
+    }),
+  ).toBeVisible();
+});
+
 test("answers handoff change-history questions with actors and timestamps", async ({
   page,
 }) => {

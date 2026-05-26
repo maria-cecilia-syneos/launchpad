@@ -131,6 +131,73 @@ describe("AgentChatShell", () => {
     );
   });
 
+  it("answers launch execution risk questions from normalized timeline and alerts", async () => {
+    const user = userEvent.setup();
+    const onAuditEventsRecorded = vi.fn();
+
+    render(
+      <AgentChatShell
+        onAuditEventsRecorded={onAuditEventsRecorded}
+        session={defaultWorkspaceSession}
+      />,
+    );
+
+    await user.type(
+      screen.getByRole("textbox", { name: /ask launchpad/i }),
+      "Which risks are open?",
+    );
+    await user.click(screen.getByRole("button", { name: /ask launchpad/i }));
+
+    await screen.findByRole("heading", {
+      name: /launch execution and risk status/i,
+    });
+    expect(screen.getByText(/state: source stale/i)).toBeVisible();
+    expect(screen.getByText(/3 active risk alerts/i)).toBeVisible();
+    expect(screen.getAllByText(/resolve deployment readiness blockers/i).length)
+      .toBeGreaterThan(0);
+    expect(screen.getByText(/inferred risk explanation/i)).toBeVisible();
+    expect(
+      screen.getByRole("link", {
+        name: /^citation 1: smartsheet launch task source from smartsheet$/i,
+      }),
+    ).toHaveAttribute("href", "/sources#cardiomax-approved-smartsheet-status");
+    expect(onAuditEventsRecorded).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          eventType: "answer.created",
+          metadata: expect.objectContaining({
+            answerId: "CARDIOMAX Launch-launch-execution-risk",
+            answerState: "source_stale",
+            citedSourceIds: ["src-cardiomax-smartsheet-approved-status"],
+          }),
+        }),
+        expect.objectContaining({
+          eventType: "answer.source_cited",
+          sourceSystem: "Smartsheet",
+        }),
+      ]),
+    );
+  });
+
+  it("answers launch execution change-history questions with source and actor context", async () => {
+    const user = userEvent.setup();
+
+    render(<AgentChatShell session={defaultWorkspaceSession} />);
+
+    await user.type(
+      screen.getByRole("textbox", { name: /ask launchpad/i }),
+      "What changed since the prior status check?",
+    );
+    await user.click(screen.getByRole("button", { name: /ask launchpad/i }));
+
+    await screen.findByRole("heading", {
+      name: /launch execution change history/i,
+    });
+    expect(screen.getByText(/2026-05-22T15:45:00.000Z/i)).toBeVisible();
+    expect(screen.getByText(/source-sync-service/i)).toBeVisible();
+    expect(screen.getAllByText(/smartsheet/i).length).toBeGreaterThan(0);
+  });
+
   it("supports keyboard submit while preserving follow-up context", async () => {
     const user = userEvent.setup();
 

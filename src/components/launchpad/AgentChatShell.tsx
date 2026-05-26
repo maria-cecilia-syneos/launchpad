@@ -39,6 +39,10 @@ import {
   isSmartsheetStatusQuestion,
 } from "@/domain/smartsheet-status";
 import {
+  buildLaunchExecutionRiskSourceBackedAnswer,
+  isLaunchExecutionRiskQuestion,
+} from "@/domain/launch-execution-risk-answer";
+import {
   createPrototypeHandoffArtifacts,
   type HandoffArtifact,
   type HandoffAuditEvent,
@@ -410,6 +414,16 @@ function buildAgentAnswer({
       previousQuestion,
       question,
       session,
+    });
+  }
+
+  if (isLaunchExecutionRiskQuestion(question, previousQuestion)) {
+    return buildLaunchExecutionRiskSourceBackedAnswer({
+      launchId: session.launch.id,
+      launchName,
+      previousQuestion,
+      question,
+      role: session.user.role,
     });
   }
 
