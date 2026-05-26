@@ -30,7 +30,8 @@ export type SourceApprovalState =
   | "draft"
   | "restricted"
   | "stale"
-  | "inactive";
+  | "inactive"
+  | "superseded";
 
 export type SourceFreshnessState =
   | "fresh"
@@ -58,10 +59,22 @@ export type SourceLinkHealthState =
 
 export type SourceRegistrationAction = "created" | "updated";
 
+export type SourceContentCategory =
+  | "claim"
+  | "launch_context"
+  | "messaging"
+  | "training_source"
+  | "value_proposition";
+
+export type SourceTrainingUseState = "approved" | "not_approved";
+
 export type SourceRegistrationInput = {
+  contentCategory?: SourceContentCategory;
+  launchOrWorkstream?: string;
   sourceName: string;
   sourceType: SourceLedgerSourceType;
   owningTeam: string;
+  relevanceSummary?: string;
   sourceSystem: SourceLedgerSystem;
   approvalState: SourceApprovalState;
   freshnessState: SourceFreshnessState;
@@ -86,21 +99,27 @@ export type VisibleSourceLedgerRecord = {
   accessState: SourceAccessState;
   approvalState: SourceApprovalState;
   displayObjectId?: string;
+  displayContentCategory: string;
+  displayLastRefreshed: string;
+  displayLaunchOrWorkstream: string;
   displayName: string;
   displayOwner: string;
   displaySourceId?: string;
   displaySourceSystem: string;
   displaySourceType: string;
+  displayTrainingUse: string;
   freshnessState: SourceFreshnessState;
   ingestionHistorySummary: string;
   ingestionStatus: SourceIngestionStatus;
   isRedacted: boolean;
   lastRefreshedAt?: string;
+  relevanceSummary: string;
   registeredAt?: string;
   sourceLinkHealth: SourceLinkHealthState;
   sourceKey: string;
   sourceUrl?: string;
   statusMessage: string;
+  trainingUseState: SourceTrainingUseState;
 };
 
 export type SourceLedgerFilters = {
@@ -108,6 +127,7 @@ export type SourceLedgerFilters = {
   approvalState: SourceApprovalState | "";
   freshnessState: SourceFreshnessState | "";
   ingestionStatus: SourceIngestionStatus | "";
+  launchOrWorkstream: string;
   owner: string;
   query: string;
   sourceSystem: SourceLedgerSystem | "";
@@ -174,6 +194,7 @@ export const approvalStateLabels: Record<SourceApprovalState, string> = {
   inactive: "Inactive",
   restricted: "Restricted",
   stale: "Stale",
+  superseded: "Superseded",
 };
 
 export const freshnessStateLabels: Record<SourceFreshnessState, string> = {
@@ -206,6 +227,14 @@ export const sourceLinkHealthLabels: Record<SourceLinkHealthState, string> = {
   unverified: "Unverified",
 };
 
+export const contentCategoryLabels: Record<SourceContentCategory, string> = {
+  claim: "Claim",
+  launch_context: "Launch context",
+  messaging: "Messaging",
+  training_source: "Training source",
+  value_proposition: "Value proposition",
+};
+
 export const sourceTypesBySystem: Record<
   SourceLedgerSystem,
   SourceLedgerSourceType[]
@@ -227,6 +256,7 @@ export const defaultSourceLedgerFilters: SourceLedgerFilters = {
   approvalState: "",
   freshnessState: "",
   ingestionStatus: "",
+  launchOrWorkstream: "",
   owner: "",
   query: "",
   sourceSystem: "",
@@ -234,6 +264,7 @@ export const defaultSourceLedgerFilters: SourceLedgerFilters = {
 };
 
 type BuildRecordOptions = {
+  lastRefreshedAt?: string;
   registeredAt?: string;
   sourceId?: string;
 };
@@ -367,10 +398,14 @@ export function buildSourceRegistrationRecord(
   return {
     accessState: input.accessState,
     approvalState: input.approvalState,
+    contentCategory: input.contentCategory,
     freshnessState: input.freshnessState,
     ingestionStatus: input.ingestionStatus,
+    lastRefreshedAt: options.lastRefreshedAt,
+    launchOrWorkstream: input.launchOrWorkstream?.trim() || undefined,
     objectId: input.objectId?.trim() || undefined,
     owningTeam: input.owningTeam.trim(),
+    relevanceSummary: input.relevanceSummary?.trim() || undefined,
     registeredAt: options.registeredAt ?? createTimestamp(),
     sourceId:
       options.sourceId ??
@@ -422,16 +457,21 @@ export function createPrototypeSourceRecords(): SourceLedgerRecord[] {
       {
         accessState: "authorized",
         approvalState: "approved",
+        contentCategory: "launch_context",
         freshnessState: "fresh",
-      ingestionStatus: "complete",
-      objectId: "sharepoint-site-cardiomax",
-      owningTeam: "Launch Operations",
+        ingestionStatus: "complete",
+        launchOrWorkstream: "CARDIOMAX Launch",
+        objectId: "sharepoint-site-cardiomax",
+        owningTeam: "Launch Operations",
+        relevanceSummary:
+          "Approved launch context for source-backed launch planning questions.",
         sourceName: "CARDIOMAX Launch Plan",
         sourceSystem: "sharepoint",
         sourceType: "sharepoint_site",
         sourceUrl: "/sources#cardiomax-launch-plan",
       },
       {
+        lastRefreshedAt: "2026-05-26T12:00:00.000Z",
         registeredAt: "2026-05-21T12:00:00.000Z",
         sourceId: "src-cardiomax-launch-plan",
       },
@@ -440,10 +480,14 @@ export function createPrototypeSourceRecords(): SourceLedgerRecord[] {
       {
         accessState: "authorized",
         approvalState: "stale",
+        contentCategory: "launch_context",
         freshnessState: "stale",
         ingestionStatus: "stale",
+        launchOrWorkstream: "CARDIOMAX Launch",
         objectId: "smartsheet-cardiomax-status",
         owningTeam: "Project Management",
+        relevanceSummary:
+          "Stale project status context that should be refreshed before use.",
         sourceName: "CARDIOMAX Smartsheet Status",
         sourceSystem: "smartsheet",
         sourceType: "smartsheet_sheet",
@@ -458,10 +502,14 @@ export function createPrototypeSourceRecords(): SourceLedgerRecord[] {
       {
         accessState: "authorized",
         approvalState: "approved",
+        contentCategory: "launch_context",
         freshnessState: "watch",
         ingestionStatus: "ready",
+        launchOrWorkstream: "CARDIOMAX Launch",
         objectId: "smartsheet-cardiomax-approved-status",
         owningTeam: "Project Management",
+        relevanceSummary:
+          "Approved project status context for launch execution questions.",
         sourceName: "CARDIOMAX Approved Smartsheet Status",
         sourceSystem: "smartsheet",
         sourceType: "smartsheet_sheet",
@@ -476,10 +524,14 @@ export function createPrototypeSourceRecords(): SourceLedgerRecord[] {
       {
         accessState: "authorized",
         approvalState: "approved",
+        contentCategory: "launch_context",
         freshnessState: "watch",
         ingestionStatus: "ready",
+        launchOrWorkstream: "CARDIOMAX Launch",
         objectId: "teams-cardiomax-decisions",
         owningTeam: "Launch Operations",
+        relevanceSummary:
+          "Approved decision context for launch coordination follow-ups.",
         sourceName: "CARDIOMAX Teams Decisions",
         sourceSystem: "teams",
         sourceType: "teams_channel",
@@ -494,10 +546,14 @@ export function createPrototypeSourceRecords(): SourceLedgerRecord[] {
       {
         accessState: "authorized",
         approvalState: "approved",
+        contentCategory: "launch_context",
         freshnessState: "watch",
         ingestionStatus: "ready",
+        launchOrWorkstream: "CARDIOMAX Launch",
         objectId: "006CARDIOMAX",
         owningTeam: "Sales Operations",
+        relevanceSummary:
+          "Approved ECRM/Salesforce account context for launch details.",
         sourceName: "CARDIOMAX Salesforce Launch Context",
         sourceSystem: "ecrm_salesforce",
         sourceType: "salesforce_record",
@@ -513,10 +569,14 @@ export function createPrototypeSourceRecords(): SourceLedgerRecord[] {
       {
         accessState: "authorized",
         approvalState: "approved",
+        contentCategory: "launch_context",
         freshnessState: "watch",
         ingestionStatus: "ready",
+        launchOrWorkstream: "CARDIOMAX Launch",
         objectId: "playbook-cardiomax-tier-2",
         owningTeam: "Launch Excellence",
+        relevanceSummary:
+          "Approved Playbook context for launch task and workflow guidance.",
         sourceName: "CARDIOMAX Tier 2 Launch Playbook",
         sourceSystem: "playbook",
         sourceType: "playbook",
@@ -531,16 +591,21 @@ export function createPrototypeSourceRecords(): SourceLedgerRecord[] {
       {
         accessState: "authorized",
         approvalState: "approved",
+        contentCategory: "training_source",
         freshnessState: "watch",
-        ingestionStatus: "ready",
+        ingestionStatus: "complete",
+        launchOrWorkstream: "CARDIOMAX Launch",
         objectId: "assets-cardiomax-approved",
         owningTeam: "Learning Solutions",
+        relevanceSummary:
+          "Approved training source content and reusable assets for Learning Solutions.",
         sourceName: "CARDIOMAX Approved Asset Library",
         sourceSystem: "asset",
         sourceType: "approved_asset",
         sourceUrl: "/sources#cardiomax-approved-assets",
       },
       {
+        lastRefreshedAt: "2026-05-26T11:30:00.000Z",
         registeredAt: "2026-05-21T12:24:00.000Z",
         sourceId: "src-cardiomax-approved-assets",
       },
@@ -549,10 +614,129 @@ export function createPrototypeSourceRecords(): SourceLedgerRecord[] {
       {
         accessState: "authorized",
         approvalState: "approved",
+        contentCategory: "messaging",
+        freshnessState: "fresh",
+        ingestionStatus: "complete",
+        launchOrWorkstream: "CARDIOMAX Launch",
+        objectId: "assets-cardiomax-message-house",
+        owningTeam: "Learning Solutions",
+        relevanceSummary:
+          "Approved messaging for training-safe core narrative and field enablement.",
+        sourceName: "CARDIOMAX Approved Message House",
+        sourceSystem: "asset",
+        sourceType: "approved_asset",
+        sourceUrl: "/sources#cardiomax-approved-message-house",
+      },
+      {
+        lastRefreshedAt: "2026-05-26T10:45:00.000Z",
+        registeredAt: "2026-05-21T12:28:00.000Z",
+        sourceId: "src-cardiomax-approved-message-house",
+      },
+    ),
+    buildSourceRegistrationRecord(
+      {
+        accessState: "authorized",
+        approvalState: "approved",
+        contentCategory: "claim",
+        freshnessState: "fresh",
+        ingestionStatus: "complete",
+        launchOrWorkstream: "CARDIOMAX Launch",
+        objectId: "assets-cardiomax-claims",
+        owningTeam: "Medical Review",
+        relevanceSummary:
+          "Approved claim language that Learning Solutions can cite in training materials.",
+        sourceName: "CARDIOMAX Approved Clinical Claim Set",
+        sourceSystem: "asset",
+        sourceType: "approved_asset",
+        sourceUrl: "/sources#cardiomax-approved-clinical-claims",
+      },
+      {
+        lastRefreshedAt: "2026-05-26T10:50:00.000Z",
+        registeredAt: "2026-05-21T12:30:00.000Z",
+        sourceId: "src-cardiomax-approved-clinical-claims",
+      },
+    ),
+    buildSourceRegistrationRecord(
+      {
+        accessState: "authorized",
+        approvalState: "approved",
+        contentCategory: "value_proposition",
+        freshnessState: "fresh",
+        ingestionStatus: "complete",
+        launchOrWorkstream: "CARDIOMAX Launch",
+        objectId: "sharepoint-cardiomax-value-prop",
+        owningTeam: "Product Marketing",
+        relevanceSummary:
+          "Current approved value proposition for Learning Solutions training build.",
+        sourceName: "CARDIOMAX Value Proposition Brief",
+        sourceSystem: "sharepoint",
+        sourceType: "sharepoint_site",
+        sourceUrl: "/sources#cardiomax-value-proposition-brief",
+      },
+      {
+        lastRefreshedAt: "2026-05-26T10:55:00.000Z",
+        registeredAt: "2026-05-21T12:32:00.000Z",
+        sourceId: "src-cardiomax-value-proposition-brief",
+      },
+    ),
+    buildSourceRegistrationRecord(
+      {
+        accessState: "authorized",
+        approvalState: "draft",
+        contentCategory: "claim",
+        freshnessState: "fresh",
+        ingestionStatus: "ready",
+        launchOrWorkstream: "CARDIOMAX Launch",
+        objectId: "word-cardiomax-draft-claims",
+        owningTeam: "Medical Review",
+        relevanceSummary:
+          "Draft claim language captured for review; not approved for training use.",
+        sourceName: "CARDIOMAX Draft Claim Language",
+        sourceSystem: "word_pdf",
+        sourceType: "word_document",
+        sourceUrl: "/sources#cardiomax-draft-claim-language",
+      },
+      {
+        lastRefreshedAt: "2026-05-26T09:15:00.000Z",
+        registeredAt: "2026-05-21T12:34:00.000Z",
+        sourceId: "src-cardiomax-draft-claim-language",
+      },
+    ),
+    buildSourceRegistrationRecord(
+      {
+        accessState: "authorized",
+        approvalState: "superseded",
+        contentCategory: "claim",
+        freshnessState: "stale",
+        ingestionStatus: "stale",
+        launchOrWorkstream: "CARDIOMAX Launch",
+        objectId: "assets-cardiomax-superseded-claims",
+        owningTeam: "Medical Review",
+        relevanceSummary:
+          "Superseded claim language retained for traceability; use the current approved replacement.",
+        sourceName: "CARDIOMAX Superseded Positioning Claims",
+        sourceSystem: "asset",
+        sourceType: "approved_asset",
+        sourceUrl: "/sources#cardiomax-superseded-positioning-claims",
+      },
+      {
+        lastRefreshedAt: "2026-05-18T09:15:00.000Z",
+        registeredAt: "2026-05-21T12:36:00.000Z",
+        sourceId: "src-cardiomax-superseded-positioning-claims",
+      },
+    ),
+    buildSourceRegistrationRecord(
+      {
+        accessState: "authorized",
+        approvalState: "approved",
+        contentCategory: "launch_context",
         freshnessState: "watch",
         ingestionStatus: "ready",
+        launchOrWorkstream: "Deployment readiness",
         objectId: "handoff-cardiomax-deployment",
         owningTeam: "Deployment Solutions",
+        relevanceSummary:
+          "Approved handoff context linked to deployment readiness workstream.",
         sourceName: "CARDIOMAX Deployment Handoff",
         sourceSystem: "handoff",
         sourceType: "handoff_artifact",
@@ -567,10 +751,13 @@ export function createPrototypeSourceRecords(): SourceLedgerRecord[] {
       {
         accessState: "restricted",
         approvalState: "restricted",
+        contentCategory: "launch_context",
         freshnessState: "restricted",
         ingestionStatus: "restricted",
+        launchOrWorkstream: "Commercial readiness",
         objectId: "restricted-commercial-plan",
         owningTeam: "Commercial Strategy",
+        relevanceSummary: "Restricted commercial source details are hidden.",
         sourceName: "Restricted commercial launch plan",
         sourceSystem: "sharepoint",
         sourceType: "sharepoint_site",
@@ -594,39 +781,53 @@ export function toVisibleSourceRecord(
     return {
       accessState: "restricted",
       approvalState: "restricted",
+      displayContentCategory: "Restricted",
+      displayLastRefreshed: "Restricted",
+      displayLaunchOrWorkstream: "Restricted",
       displayName: "Restricted source",
       displayOwner: "Restricted",
       displaySourceSystem: "Restricted",
       displaySourceType: "Restricted",
+      displayTrainingUse: "Not approved for training use",
       freshnessState: "restricted",
       ingestionHistorySummary: "Restricted ingestion history is hidden.",
       ingestionStatus: "restricted",
       isRedacted,
+      relevanceSummary: "Restricted source details are hidden.",
       sourceKey: `restricted-source-${index}`,
       statusMessage: "Restricted source details are hidden.",
       sourceLinkHealth: "restricted",
+      trainingUseState: "not_approved",
     };
   }
 
   return {
     accessState: record.accessState,
     approvalState: record.approvalState,
+    displayContentCategory: getSourceContentCategoryLabel(record),
+    displayLastRefreshed: getLastRefreshedLabel(record),
+    displayLaunchOrWorkstream: getLaunchOrWorkstreamLabel(record),
     displayObjectId: record.objectId,
     displayName: record.sourceName,
     displayOwner: record.owningTeam,
     displaySourceId: record.sourceId,
     displaySourceSystem: sourceSystemLabels[record.sourceSystem],
     displaySourceType: sourceTypeLabels[record.sourceType],
+    displayTrainingUse: getSourceTrainingUseLabel(record),
     freshnessState: record.freshnessState,
     ingestionHistorySummary: getVisibleIngestionHistorySummary(record),
     ingestionStatus: record.ingestionStatus,
     isRedacted,
     lastRefreshedAt: record.lastRefreshedAt,
+    relevanceSummary: getSourceRelevanceSummary(record),
     registeredAt: record.registeredAt,
     sourceLinkHealth: record.sourceLinkHealth,
     sourceKey: record.sourceId,
     sourceUrl: record.sourceUrl,
     statusMessage: getSourceStatusMessage(record),
+    trainingUseState: isSourceApprovedForTrainingUse(record)
+      ? "approved"
+      : "not_approved",
   };
 }
 
@@ -661,6 +862,7 @@ export function getActiveSourceLedgerFilters(
   const activeFilters: SourceLedgerActiveFilter[] = [];
   const query = normalizeSearchValue(filters.query);
   const owner = normalizeSearchValue(filters.owner);
+  const launchOrWorkstream = normalizeSearchValue(filters.launchOrWorkstream);
 
   if (query) {
     activeFilters.push({
@@ -718,6 +920,14 @@ export function getActiveSourceLedgerFilters(
     });
   }
 
+  if (launchOrWorkstream) {
+    activeFilters.push({
+      key: "launchOrWorkstream",
+      label: "Launch/workstream",
+      value: filters.launchOrWorkstream.trim(),
+    });
+  }
+
   if (owner) {
     activeFilters.push({
       key: "owner",
@@ -741,10 +951,20 @@ export function getSourceLedgerResultSummary(
   return `${filteredCount} of ${totalVisible} source records match current filters.`;
 }
 
+export function getMissingApprovedSourceSummary(filters: SourceLedgerFilters) {
+  const requestedContent = filters.query.trim() || "the requested content";
+  const launchOrWorkstream = filters.launchOrWorkstream.trim();
+  const owner = filters.owner.trim() || "Learning Solutions";
+  const scope = launchOrWorkstream ? ` for ${launchOrWorkstream}` : "";
+
+  return `Missing approved source: no approved source matched "${requestedContent}"${scope}. Ask ${owner} to attach or approve a current source.`;
+}
+
 export function getSourceLedgerNextAction(
   source: Pick<
     VisibleSourceLedgerRecord,
     | "accessState"
+    | "approvalState"
     | "freshnessState"
     | "ingestionStatus"
     | "isRedacted"
@@ -756,6 +976,18 @@ export function getSourceLedgerNextAction(
     return isAdmin
       ? "Review access permissions before sharing source details."
       : "Access is restricted. Ask an admin if you need this source.";
+  }
+
+  if (source.approvalState === "draft") {
+    return "Do not use for training until an authorized reviewer approves it.";
+  }
+
+  if (source.approvalState === "inactive") {
+    return "Find the current approved source before training reuse.";
+  }
+
+  if (source.approvalState === "superseded") {
+    return "Use the current approved replacement before training reuse.";
   }
 
   if (source.ingestionStatus === "failed") {
@@ -837,6 +1069,7 @@ function sourceMatchesFilters(
   filters: SourceLedgerFilters,
 ) {
   const owner = normalizeSearchValue(filters.owner);
+  const launchOrWorkstream = normalizeSearchValue(filters.launchOrWorkstream);
 
   if (filters.sourceSystem && source.displaySourceSystem !== sourceSystemLabels[filters.sourceSystem]) {
     return false;
@@ -863,6 +1096,15 @@ function sourceMatchesFilters(
   }
 
   if (owner && !normalizeSearchValue(source.displayOwner).includes(owner)) {
+    return false;
+  }
+
+  if (
+    launchOrWorkstream &&
+    !normalizeSearchValue(source.displayLaunchOrWorkstream).includes(
+      launchOrWorkstream,
+    )
+  ) {
     return false;
   }
 
@@ -898,12 +1140,26 @@ function getActiveFilterMatchLabels(filters: SourceLedgerFilters) {
     filters.freshnessState ? "freshness" : undefined,
     filters.accessState ? "access" : undefined,
     filters.ingestionStatus ? "ingestion" : undefined,
+    normalizeSearchValue(filters.launchOrWorkstream)
+      ? "launch/workstream"
+      : undefined,
     normalizeSearchValue(filters.owner) ? "owner" : undefined,
   ].filter((label): label is string => Boolean(label));
 }
 
 function getQueryMatchLabels(source: VisibleSourceLedgerRecord, query: string) {
+  if (/\b(?:not approved|approved for training use)\b/i.test(query)) {
+    const trainingUseMatchLabel = getTrainingUseQueryMatchLabel(source, query);
+
+    return trainingUseMatchLabel ? [trainingUseMatchLabel] : [];
+  }
+
   const values: Array<{ label: string; value?: string }> = [
+    { label: "content category", value: source.displayContentCategory },
+    {
+      label: "launch/workstream",
+      value: source.displayLaunchOrWorkstream,
+    },
     { label: "source system", value: source.displaySourceSystem },
     { label: "source type", value: source.displaySourceType },
     { label: "approval", value: approvalStateLabels[source.approvalState] },
@@ -916,11 +1172,20 @@ function getQueryMatchLabels(source: VisibleSourceLedgerRecord, query: string) {
     },
     { label: "title", value: source.displayName },
     { label: "owner", value: source.displayOwner },
+    { label: "last refreshed", value: source.displayLastRefreshed },
+    { label: "relevance", value: source.relevanceSummary },
   ];
+  const trainingUseMatchLabel = getTrainingUseQueryMatchLabel(source, query);
 
-  return values
+  const labels = values
     .filter(({ value }) => normalizeSearchValue(value).includes(query))
     .map(({ label }) => label);
+
+  if (trainingUseMatchLabel) {
+    labels.push(trainingUseMatchLabel);
+  }
+
+  return labels;
 }
 
 function normalizeSearchValue(value?: string) {
@@ -945,6 +1210,28 @@ function formatCount(count: number, singularNoun: string) {
   return `${count} ${singularNoun}${count === 1 ? "" : "s"}`;
 }
 
+function getTrainingUseQueryMatchLabel(
+  source: Pick<
+    VisibleSourceLedgerRecord,
+    "displayTrainingUse" | "trainingUseState"
+  >,
+  query: string,
+) {
+  if (/\bnot approved\b/i.test(query)) {
+    return source.trainingUseState === "not_approved"
+      ? "training use"
+      : undefined;
+  }
+
+  if (/\bapproved for training use\b/i.test(query)) {
+    return source.trainingUseState === "approved" ? "training use" : undefined;
+  }
+
+  return normalizeSearchValue(source.displayTrainingUse).includes(query)
+    ? "training use"
+    : undefined;
+}
+
 function getVisibleIngestionHistorySummary(record: SourceLedgerRecord) {
   const status = ingestionStatusLabels[record.ingestionStatus].toLowerCase();
 
@@ -953,6 +1240,60 @@ function getVisibleIngestionHistorySummary(record: SourceLedgerRecord) {
   }
 
   return `Latest ingestion status is ${status}; registered ${record.registeredAt}.`;
+}
+
+export function isSourceApprovedForTrainingUse(
+  source: Pick<
+    SourceLedgerRecord,
+    | "accessState"
+    | "approvalState"
+    | "contentCategory"
+    | "freshnessState"
+    | "ingestionStatus"
+    | "sourceLinkHealth"
+  >,
+) {
+  return (
+    source.accessState === "authorized" &&
+    source.approvalState === "approved" &&
+    source.contentCategory !== undefined &&
+    source.contentCategory !== "launch_context" &&
+    source.freshnessState !== "stale" &&
+    source.freshnessState !== "restricted" &&
+    source.ingestionStatus === "complete" &&
+    source.sourceLinkHealth === "healthy"
+  );
+}
+
+function getSourceTrainingUseLabel(source: SourceLedgerRecord) {
+  return isSourceApprovedForTrainingUse(source)
+    ? "Approved for training use"
+    : "Not approved for training use";
+}
+
+function getSourceContentCategoryLabel(source: SourceLedgerRecord) {
+  return source.contentCategory
+    ? contentCategoryLabels[source.contentCategory]
+    : "General source";
+}
+
+function getLaunchOrWorkstreamLabel(source: SourceLedgerRecord) {
+  return source.launchOrWorkstream ?? "Not linked in prototype";
+}
+
+function getLastRefreshedLabel(source: SourceLedgerRecord) {
+  if (source.lastRefreshedAt) {
+    return source.lastRefreshedAt;
+  }
+
+  return `Not refreshed since registration ${source.registeredAt}`;
+}
+
+function getSourceRelevanceSummary(source: SourceLedgerRecord) {
+  return (
+    source.relevanceSummary ??
+    `Relevant as ${getSourceContentCategoryLabel(source).toLowerCase()} from ${sourceSystemLabels[source.sourceSystem]}.`
+  );
 }
 
 function inferSourceLinkHealth(

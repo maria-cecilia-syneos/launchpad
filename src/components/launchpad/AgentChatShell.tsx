@@ -11,7 +11,11 @@ import {
 } from "react";
 import { ArrowUp, MessageSquare, Sparkles } from "lucide-react";
 
-import { buildPrototypeAnswer } from "@/domain/answer";
+import {
+  buildApprovedTrainingContentAnswer,
+  buildPrototypeAnswer,
+  isApprovedTrainingContentQuestion,
+} from "@/domain/answer";
 import {
   type AnswerFeedbackCategory,
   type AnswerFeedbackRecord,
@@ -435,6 +439,14 @@ function buildAgentAnswer({
       question,
       role: session.user.role,
     });
+  }
+
+  if (isApprovedTrainingContentQuestion(question, previousQuestion)) {
+    return buildApprovedTrainingContentAnswer(
+      question,
+      launchName,
+      previousQuestion,
+    );
   }
 
   return buildPrototypeAnswer(question, launchName, previousQuestion);

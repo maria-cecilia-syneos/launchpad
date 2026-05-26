@@ -1,3 +1,13 @@
+import {
+  createPrototypeSourceRecords,
+  isSourceApprovedForTrainingUse,
+  sourceSystemLabels,
+  sourceTypeLabels,
+  type SourceApprovalState,
+  type SourceLedgerRecord,
+  type SourceLedgerSystem,
+} from "./source-ledger";
+
 export type SourceBackedAnswerState =
   | "answered"
   | "no_reliable_source"
@@ -11,14 +21,7 @@ export type AnswerConfidence = "high" | "medium" | "low" | "none";
 
 export type SourceAccessState = "authorized" | "restricted";
 
-export type SourceSystem =
-  | "Handoff artifact"
-  | "SharePoint"
-  | "Smartsheet"
-  | "ECRM/Salesforce"
-  | "Teams"
-  | "Email"
-  | "Playbook";
+export type SourceSystem = (typeof sourceSystemLabels)[SourceLedgerSystem];
 
 export type SourceCitation = {
   id: string;
@@ -29,6 +32,8 @@ export type SourceCitation = {
   freshnessLabel: string;
   accessState: SourceAccessState;
   sourceType: string;
+  approvalState?: SourceApprovalState;
+  owner?: string;
 };
 
 export type RetrievedFact = {
@@ -95,6 +100,64 @@ const smartsheetCitation: SourceCitation = {
   sourceType: "Project status",
 };
 
+type ApprovedTrainingContentEntry = {
+  citation: SourceCitation;
+  fact: RetrievedFact;
+  keywords: string[];
+};
+
+const approvedTrainingContentCatalog: Record<
+  string,
+  { factText: string; keywords: string[] }
+> = {
+  "src-cardiomax-approved-assets": {
+    factText:
+      "CARDIOMAX Approved Asset Library is approved for training use and owned by Learning Solutions.",
+    keywords: [
+      "asset",
+      "assets",
+      "asset library",
+      "approved asset",
+      "training asset",
+      "training source",
+      "training sources",
+    ],
+  },
+  "src-cardiomax-approved-message-house": {
+    factText:
+      "CARDIOMAX Approved Message House contains approved messaging for training-safe core narrative.",
+    keywords: [
+      "core narrative",
+      "message house",
+      "messaging",
+      "approved message",
+      "approved messaging",
+    ],
+  },
+  "src-cardiomax-approved-clinical-claims": {
+    factText:
+      "CARDIOMAX Approved Clinical Claim Set contains approved claim language for training materials.",
+    keywords: [
+      "claim",
+      "claims",
+      "claim language",
+      "clinical claim",
+      "clinical claims",
+    ],
+  },
+  "src-cardiomax-value-proposition-brief": {
+    factText:
+      "CARDIOMAX Value Proposition Brief contains the current approved value proposition for the training build.",
+    keywords: [
+      "value prop",
+      "value proposition",
+      "value propositions",
+      "positioning",
+      "proposition",
+    ],
+  },
+};
+
 function hasWord(question: string, word: string) {
   return new RegExp(`\\b${word}\\b`, "i").test(question);
 }
@@ -108,6 +171,45 @@ function isContextualFollowUp(question: string) {
 function isSupportedAnsweredQuestion(question: string) {
   return /\b(owner|owners|owns|handoff|handoffs|commitment|commitments|deadline|deadlines|asset|assets|risk|risks|blocker|blockers|kickoff|readiness|deployment)\b/i.test(
     question,
+  );
+}
+
+export function isApprovedTrainingContentQuestion(
+  question: string,
+  previousQuestion?: string | null,
+) {
+  if (previousQuestion && isContextualFollowUp(question)) {
+    return isApprovedTrainingContentQuestion(previousQuestion);
+  }
+
+  const normalizedQuestion = normalizeApprovedContentQuestion(question);
+  const hasContentTerm =
+    /\b(message house|messaging|claim|claims|value proposition|value propositions|approved asset|approved assets|training asset|training assets|asset library)\b/i.test(
+      normalizedQuestion,
+    );
+  const hasApprovedTrainingIntent =
+    /\b(approved|training|learning solutions|source|sources|content|for use)\b/i.test(
+      normalizedQuestion,
+    );
+
+  return (
+    /\b(approved content|training content|training source|training sources|approved source|approved sources)\b/i.test(
+      normalizedQuestion,
+    ) ||
+    (hasContentTerm && hasApprovedTrainingIntent)
+  );
+}
+
+function isMissingApprovedTrainingContentQuestion(question: string) {
+  const normalizedQuestion = normalizeApprovedContentQuestion(question);
+
+  return (
+    /\b(draft|stale|superseded|inactive|unapproved|not approved)\b/i.test(
+      normalizedQuestion,
+    ) ||
+    /\b(unavailable|missing|unknown|unsupported|nonexistent|not available|no approved)\b/i.test(
+      normalizedQuestion,
+    ) || hasUnsupportedSpecificApprovedContentRequest(normalizedQuestion)
   );
 }
 
@@ -161,6 +263,203 @@ export function buildPrototypeAnswer(
     launchName,
     previousQuestion,
   );
+}
+
+export function buildApprovedTrainingContentAnswer(
+  question: string,
+  launchName: string,
+  previousQuestion?: string | null,
+): SourceBackedAnswer {
+  const effectiveQuestion =
+    previousQuestion && isContextualFollowUp(question) ? previousQuestion : question;
+
+  if (hasWord(effectiveQuestion.toLowerCase(), "restricted")) {
+    return createStatePrototypeAnswer("access_restricted", launchName);
+  }
+
+  if (isMissingApprovedTrainingContentQuestion(effectiveQuestion)) {
+    return createMissingApprovedTrainingContentAnswer(launchName);
+  }
+
+  const selectedEntries = getApprovedTrainingContentEntriesForQuestion(
+    effectiveQuestion,
+  );
+
+  if (selectedEntries.length === 0) {
+    return createMissingApprovedTrainingContentAnswer(launchName);
+  }
+
+  const citations = selectedEntries.map((entry, index) => ({
+    ...entry.citation,
+    marker: String(index + 1),
+  }));
+  const retrievedFacts = selectedEntries.map((entry) => entry.fact);
+  const primaryCitation = citations[0];
+
+  return {
+    id: `${launchName}-approved-training-content`,
+    state: "answered",
+    title: "Approved training content",
+    summary:
+      `For ${launchName}, LaunchPad found approved, authorized content that is safe for Learning Solutions discovery. ` +
+      "It is source-backed only; no training draft was generated.",
+    confidence: "high",
+    freshnessLabel: "Freshness: refreshed 2026-05-26",
+    citations,
+    retrievedFacts,
+    nextActions: [
+      {
+        id: `open-${primaryCitation.id}`,
+        label: `Open ${primaryCitation.title}.`,
+        href: primaryCitation.href ?? "/sources",
+      },
+      {
+        id: "review-approved-content-filters",
+        label: "Review approved content filters in Source Ledger.",
+        href: "/sources",
+      },
+    ],
+  };
+}
+
+function createMissingApprovedTrainingContentAnswer(
+  launchName: string,
+): SourceBackedAnswer {
+  return {
+    id: `${launchName}-missing-approved-training-content`,
+    state: "no_reliable_source",
+    title: "Missing approved source",
+    summary:
+      "LaunchPad did not find approved, accessible training content for that request.",
+    confidence: "none",
+    freshnessLabel: "Freshness: no approved source available",
+    citations: [],
+    retrievedFacts: [],
+    sourceGap:
+      "Source gap: missing approved source for the requested training content.",
+    nextActions: [
+      {
+        id: "ask-learning-solutions-owner",
+        label: "Ask Learning Solutions to attach or approve a current source.",
+        href: "/sources",
+      },
+      {
+        id: "check-approved-content-ledger",
+        label: "Check Source Ledger for approved content ingestion gaps.",
+        href: "/sources",
+      },
+    ],
+  };
+}
+
+function getApprovedTrainingContentEntriesForQuestion(question: string) {
+  const normalizedQuestion = normalizeApprovedContentQuestion(question);
+  const approvedTrainingContentEntries = getApprovedTrainingContentEntries();
+  const specificMatches = approvedTrainingContentEntries.filter((entry) =>
+    entry.keywords.some((keyword) =>
+      normalizedQuestion.includes(normalizeApprovedContentQuestion(keyword)),
+    ),
+  );
+
+  if (specificMatches.length > 0) {
+    return specificMatches;
+  }
+
+  if (isGeneralApprovedTrainingContentQuestion(normalizedQuestion)) {
+    return approvedTrainingContentEntries;
+  }
+
+  return [];
+}
+
+function isGeneralApprovedTrainingContentQuestion(normalizedQuestion: string) {
+  return (
+    /\b(approved content|approved training content|training content|approved source|approved sources)\b/i.test(
+      normalizedQuestion,
+    ) && !hasUnsupportedSpecificApprovedContentRequest(normalizedQuestion)
+  );
+}
+
+function hasUnsupportedSpecificApprovedContentRequest(
+  normalizedQuestion: string,
+) {
+  const specificRequest = getSpecificApprovedContentRequest(normalizedQuestion);
+  const approvedTrainingContentEntries = getApprovedTrainingContentEntries();
+
+  if (!specificRequest || isGenericTrainingScope(specificRequest)) {
+    return false;
+  }
+
+  return !approvedTrainingContentEntries.some((entry) =>
+    entry.keywords.some((keyword) =>
+      specificRequest.includes(normalizeApprovedContentQuestion(keyword)),
+    ),
+  );
+}
+
+function getSpecificApprovedContentRequest(normalizedQuestion: string) {
+  const match = [
+    /\bfor use in\s+(.+)$/,
+    /\b(?:for|about|regarding|related to|covering|on)\s+(.+)$/,
+    /[:\-]\s*(.+)$/,
+  ]
+    .map((pattern) => normalizedQuestion.match(pattern))
+    .find((result): result is RegExpMatchArray => Boolean(result));
+
+  return match?.[1]?.replace(/[?.!]+$/g, "").trim() ?? "";
+}
+
+function isGenericTrainingScope(value: string) {
+  return /^(training|training use|learning solutions|learning solutions discovery|field enablement|cardiomax|cardiomax launch|launch)$/.test(
+    value,
+  );
+}
+
+function normalizeApprovedContentQuestion(value: string) {
+  return value.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function getApprovedTrainingContentEntries(): ApprovedTrainingContentEntry[] {
+  return createPrototypeSourceRecords()
+    .filter(isSourceApprovedForTrainingUse)
+    .map((source) => {
+      const catalogEntry = approvedTrainingContentCatalog[source.sourceId];
+
+      return {
+        citation: createCitationFromSourceRecord(source),
+        fact: {
+          id: source.sourceId.replace(/^src-/, "approved-"),
+          text:
+            catalogEntry?.factText ??
+            `${source.sourceName} is approved for training use and owned by ${source.owningTeam}.`,
+          citationId: source.sourceId,
+        },
+        keywords:
+          catalogEntry?.keywords ??
+          [
+            source.sourceName,
+            source.contentCategory ?? "",
+            source.relevanceSummary ?? "",
+          ],
+      };
+    });
+}
+
+function createCitationFromSourceRecord(source: SourceLedgerRecord): SourceCitation {
+  return {
+    accessState: source.accessState,
+    approvalState: source.approvalState,
+    freshnessLabel: source.lastRefreshedAt
+      ? `Freshness: refreshed ${source.lastRefreshedAt}`
+      : `Freshness: registered ${source.registeredAt}`,
+    href: source.sourceUrl,
+    id: source.sourceId,
+    marker: "1",
+    owner: source.owningTeam,
+    sourceType: sourceTypeLabels[source.sourceType],
+    system: sourceSystemLabels[source.sourceSystem],
+    title: source.sourceName,
+  };
 }
 
 export function createRestrictedPrototypeAnswer(

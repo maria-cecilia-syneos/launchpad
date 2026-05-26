@@ -63,7 +63,7 @@ describe("SourceLedgerPanel", () => {
     expect(within(launchPlan).getByText(/source system: sharepoint/i))
       .toBeVisible();
     expect(screen.getByText(/approval: stale/i)).toBeVisible();
-    expect(screen.getByText(/ingestion: stale/i)).toBeVisible();
+    expect(screen.getAllByText(/ingestion: stale/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/access: restricted/i)).toBeVisible();
   });
 
@@ -183,6 +183,73 @@ describe("SourceLedgerPanel", () => {
     );
   });
 
+  it("preserves training metadata when an existing approved source is updated", async () => {
+    const user = userEvent.setup();
+    const onSourceAuditEvent = vi.fn<(event: SourceLedgerAuditEvent) => void>();
+
+    render(
+      <SourceLedgerPanel
+        initialSources={createPrototypeSourceRecords()}
+        onSourceAuditEvent={onSourceAuditEvent}
+        session={adminSession}
+      />,
+    );
+    const registrationForm = screen.getByRole("form", {
+      name: /register enterprise source/i,
+    });
+
+    await user.type(
+      within(registrationForm).getByRole("textbox", { name: /source name/i }),
+      "CARDIOMAX Value Proposition Brief Updated",
+    );
+    await user.type(
+      within(registrationForm).getByRole("textbox", { name: /owning team/i }),
+      "Product Marketing",
+    );
+    await user.type(
+      within(registrationForm).getByRole("textbox", { name: /object id/i }),
+      "sharepoint-cardiomax-value-prop",
+    );
+    await user.selectOptions(
+      within(registrationForm).getByRole("combobox", { name: /source system/i }),
+      "sharepoint",
+    );
+    await user.selectOptions(
+      within(registrationForm).getByRole("combobox", { name: /source type/i }),
+      "sharepoint_site",
+    );
+    await user.selectOptions(
+      within(registrationForm).getByRole("combobox", {
+        name: /ingestion status/i,
+      }),
+      "complete",
+    );
+    await user.click(
+      within(registrationForm).getByRole("button", {
+        name: /register source/i,
+      }),
+    );
+
+    expectStatusRegionToHaveText(/source updated in source ledger/i);
+    const updatedResult = screen.getByRole("article", {
+      name: /cardiomax value proposition brief updated/i,
+    });
+
+    expect(updatedResult).toHaveTextContent(
+      /approved for use: approved for training use/i,
+    );
+    expect(updatedResult).toHaveTextContent(/content category: value proposition/i);
+    expect(updatedResult).toHaveTextContent(
+      /launch or workstream: cardiomax launch/i,
+    );
+    expect(updatedResult).toHaveTextContent(/last refreshed: 2026-05-26/i);
+    expect(onSourceAuditEvent).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        eventType: "source.updated",
+      }),
+    );
+  });
+
   it("does not update a different source system that happens to share a location key", async () => {
     const user = userEvent.setup();
     const sharedObjectId = "shared-enterprise-object";
@@ -291,8 +358,9 @@ describe("SourceLedgerPanel", () => {
     ).not.toBeInTheDocument();
     expect(screen.queryByText(/restricted commercial launch plan/i))
       .not.toBeInTheDocument();
-    expect(screen.getByText(/restricted source details are hidden/i))
-      .toBeVisible();
+    expect(
+      screen.getAllByText(/restricted source details are hidden/i).length,
+    ).toBeGreaterThan(0);
 
     const restrictedResult = screen.getByRole("article", {
       name: /restricted source/i,
@@ -333,7 +401,7 @@ describe("SourceLedgerPanel", () => {
     );
 
     expect(screen.getByRole("status", { name: /source result count/i }))
-      .toHaveTextContent(/1 of 9 source records match current filters/i);
+      .toHaveTextContent(/1 of 14 source records match current filters/i);
     expect(screen.getByText(/search: salesforce/i)).toBeVisible();
     expect(screen.getByRole("article", {
       name: /cardiomax salesforce launch context/i,
@@ -365,10 +433,116 @@ describe("SourceLedgerPanel", () => {
     await user.click(screen.getByRole("button", { name: /clear filters/i }));
 
     expect(screen.getByRole("status", { name: /source result count/i }))
-      .toHaveTextContent(/9 source records available/i);
+      .toHaveTextContent(/14 source records available/i);
     expect(screen.getByRole("article", {
       name: /cardiomax deployment handoff/i,
     })).toBeVisible();
+  });
+
+  it("finds approved training content by launch or workstream and exposes safe-use details", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <SourceLedgerPanel
+        initialSources={createPrototypeSourceRecords()}
+        session={adminSession}
+      />,
+    );
+
+    await user.type(
+      screen.getByRole("searchbox", { name: /search sources/i }),
+      "value proposition",
+    );
+    await user.type(
+      screen.getByRole("textbox", { name: /launch or workstream filter/i }),
+      "cardiomax",
+    );
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: /approval filter/i }),
+      "approved",
+    );
+
+    const result = screen.getByRole("article", {
+      name: /cardiomax value proposition brief/i,
+    });
+
+    expect(result).toHaveAttribute("id", "cardiomax-value-proposition-brief");
+    expect(result).toHaveTextContent(/approved for use: approved for training use/i);
+    expect(result).toHaveTextContent(/last refreshed:/i);
+    expect(result).toHaveTextContent(/content category: value proposition/i);
+    expect(result).toHaveTextContent(/launch or workstream: cardiomax launch/i);
+    expect(result).toHaveTextContent(/approved value proposition/i);
+    expect(result).toHaveTextContent(/matched/i);
+    expect(result).toHaveTextContent(/launch\/workstream/i);
+
+    await user.click(
+      within(result).getByRole("button", {
+        name: /show details for cardiomax value proposition brief/i,
+      }),
+    );
+
+    expect(within(result).getByText(/linked launch or asset context:/i))
+      .toBeVisible();
+    expect(
+      within(result).getByRole("link", {
+        name: /authorized source link: cardiomax value proposition brief/i,
+      }),
+    ).toHaveAttribute("href", "/sources#cardiomax-value-proposition-brief");
+  });
+
+  it("explains missing approved-source gaps when approved training content is unavailable", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <SourceLedgerPanel
+        initialSources={createPrototypeSourceRecords()}
+        session={adminSession}
+      />,
+    );
+
+    await user.type(
+      screen.getByRole("searchbox", { name: /search sources/i }),
+      "renal dosing",
+    );
+    await user.type(
+      screen.getByRole("textbox", { name: /launch or workstream filter/i }),
+      "CARDIOMAX Launch",
+    );
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: /approval filter/i }),
+      "approved",
+    );
+
+    expect(screen.getByText(/no approved source matched "renal dosing"/i))
+      .toBeVisible();
+    expect(screen.getByText(/missing approved source/i)).toBeVisible();
+    expect(screen.getByText(/attach or approve a current source/i)).toBeVisible();
+  });
+
+  it("does not report a missing approved-source gap for unrelated empty text searches", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <SourceLedgerPanel
+        initialSources={createPrototypeSourceRecords()}
+        session={adminSession}
+      />,
+    );
+
+    await user.type(
+      screen.getByRole("searchbox", { name: /search sources/i }),
+      "budget forecast",
+    );
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: /approval filter/i }),
+      "approved",
+    );
+
+    expect(screen.getByText(/no sources match current filters/i)).toBeVisible();
+    expect(screen.queryByText(/missing approved source/i))
+      .not.toBeInTheDocument();
+    expect(screen.queryByText(/attach or approve a current source/i))
+      .not.toBeInTheDocument();
   });
 
   it("inspects normalized source details with match rationale and next action", async () => {
@@ -401,12 +575,14 @@ describe("SourceLedgerPanel", () => {
     expect(within(smartsheetResult).getByText(/ingestion history:/i))
       .toBeVisible();
     expect(within(smartsheetResult).getByText(/registered:/i)).toBeVisible();
-    expect(within(smartsheetResult).getByText(/related launch:/i)).toBeVisible();
+    expect(
+      within(smartsheetResult).getByText(/linked launch or asset context:/i),
+    ).toBeVisible();
     expect(within(smartsheetResult).getByText(/next useful action:/i))
       .toBeVisible();
     expect(
       within(smartsheetResult).getByRole("link", {
-        name: /\/sources#cardiomax-smartsheet-status/i,
+        name: /authorized source link: cardiomax smartsheet status/i,
       }),
     ).toHaveAttribute("href", "/sources#cardiomax-smartsheet-status");
     expect(smartsheetResult).toHaveTextContent(
@@ -431,7 +607,7 @@ describe("SourceLedgerPanel", () => {
     );
 
     expect(screen.getByRole("status", { name: /source result count/i }))
-      .toHaveTextContent(/0 of 9 source records match current filters/i);
+      .toHaveTextContent(/0 of 14 source records match current filters/i);
     expect(screen.getByText(/no sources match current filters/i)).toBeVisible();
     expect(screen.queryByText(/restricted commercial launch plan/i))
       .not.toBeInTheDocument();

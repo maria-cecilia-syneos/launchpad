@@ -8,6 +8,8 @@ import {
   filterVisibleSourceRecords,
   filterSourceLedgerResults,
   getActiveSourceLedgerFilters,
+  getMissingApprovedSourceSummary,
+  isSourceApprovedForTrainingUse,
   getSourceLedgerNextAction,
   getSourceLedgerResultSummary,
   hasActiveSourceLedgerFilters,
@@ -217,12 +219,11 @@ describe("source ledger domain helpers", () => {
         ...defaultSourceLedgerFilters,
         approvalState: "approved",
         sourceSystem: "asset",
-      }),
+      }).map((source) => source.displayName),
     ).toEqual([
-      expect.objectContaining({
-        displayName: "CARDIOMAX Approved Asset Library",
-        matchRationale: "Matched source system and approval.",
-      }),
+      "CARDIOMAX Approved Asset Library",
+      "CARDIOMAX Approved Message House",
+      "CARDIOMAX Approved Clinical Claim Set",
     ]);
     expect(
       filterSourceLedgerResults(visibleSources, {
@@ -247,13 +248,22 @@ describe("source ledger domain helpers", () => {
         ...defaultSourceLedgerFilters,
         freshnessState: "stale",
       }).map((source) => source.displayName),
-    ).toEqual(["CARDIOMAX Smartsheet Status"]);
+    ).toEqual([
+      "CARDIOMAX Smartsheet Status",
+      "CARDIOMAX Superseded Positioning Claims",
+    ]);
     expect(
       filterSourceLedgerResults(visibleSources, {
-        ...defaultSourceLedgerFilters,
-        ingestionStatus: "complete",
-      }).map((source) => source.displayName),
-    ).toEqual(["CARDIOMAX Launch Plan"]);
+      ...defaultSourceLedgerFilters,
+      ingestionStatus: "complete",
+    }).map((source) => source.displayName),
+  ).toEqual([
+      "CARDIOMAX Launch Plan",
+      "CARDIOMAX Approved Asset Library",
+      "CARDIOMAX Approved Message House",
+      "CARDIOMAX Approved Clinical Claim Set",
+      "CARDIOMAX Value Proposition Brief",
+    ]);
     expect(
       filterSourceLedgerResults(visibleSources, {
         ...defaultSourceLedgerFilters,
@@ -266,6 +276,98 @@ describe("source ledger domain helpers", () => {
         owner: "deployment",
       }).map((source) => source.displayName),
     ).toEqual(["CARDIOMAX Deployment Handoff"]);
+  });
+
+  it("finds approved training content by category and launch or workstream", () => {
+    const visibleSources = filterVisibleSourceRecords(
+      createPrototypeSourceRecords(),
+      "admin",
+    );
+
+    const valuePropositionResults = filterSourceLedgerResults(visibleSources, {
+      ...defaultSourceLedgerFilters,
+      approvalState: "approved",
+      launchOrWorkstream: "cardiomax",
+      query: "value proposition",
+    });
+
+    expect(valuePropositionResults).toEqual([
+      expect.objectContaining({
+        displayContentCategory: "Value proposition",
+        displayLaunchOrWorkstream: "CARDIOMAX Launch",
+        displayName: "CARDIOMAX Value Proposition Brief",
+        displayTrainingUse: "Approved for training use",
+        matchRationale: expect.stringContaining("launch/workstream"),
+      }),
+    ]);
+    expect(valuePropositionResults[0].displayLastRefreshed).toBe(
+      "2026-05-26T10:55:00.000Z",
+    );
+    expect(valuePropositionResults[0].relevanceSummary).toContain(
+      "approved value proposition",
+    );
+
+    const draftClaim = filterSourceLedgerResults(visibleSources, {
+      ...defaultSourceLedgerFilters,
+      approvalState: "draft",
+      query: "claim",
+    })[0];
+    const supersededClaim = filterSourceLedgerResults(visibleSources, {
+      ...defaultSourceLedgerFilters,
+      approvalState: "superseded",
+      query: "claim",
+    })[0];
+
+    expect(draftClaim).toEqual(
+      expect.objectContaining({
+        displayTrainingUse: "Not approved for training use",
+        nextAction: "Do not use for training until an authorized reviewer approves it.",
+      }),
+    );
+    expect(supersededClaim).toEqual(
+      expect.objectContaining({
+        displayTrainingUse: "Not approved for training use",
+        nextAction: "Use the current approved replacement before training reuse.",
+      }),
+    );
+  });
+
+  it("does not treat unsynced or not-approved training records as approved for use", () => {
+    const syncedApprovedSource = createPrototypeSourceRecords().find(
+      (source) => source.sourceId === "src-cardiomax-approved-clinical-claims",
+    )!;
+    const unsyncedApprovedSource = {
+      ...syncedApprovedSource,
+      ingestionStatus: "ready" as const,
+    };
+    const draftSource = createPrototypeSourceRecords().find(
+      (source) => source.approvalState === "draft",
+    )!;
+
+    expect(isSourceApprovedForTrainingUse(syncedApprovedSource)).toBe(true);
+    expect(isSourceApprovedForTrainingUse(unsyncedApprovedSource)).toBe(false);
+    expect(isSourceApprovedForTrainingUse(draftSource)).toBe(false);
+  });
+
+  it("matches approved-for-training-use searches structurally", () => {
+    const visibleSources = filterVisibleSourceRecords(
+      createPrototypeSourceRecords(),
+      "admin",
+    );
+    const results = filterSourceLedgerResults(visibleSources, {
+      ...defaultSourceLedgerFilters,
+      query: "approved for training use",
+    });
+
+    expect(results.map((source) => source.displayName)).toEqual([
+      "CARDIOMAX Approved Asset Library",
+      "CARDIOMAX Approved Message House",
+      "CARDIOMAX Approved Clinical Claim Set",
+      "CARDIOMAX Value Proposition Brief",
+    ]);
+    expect(results.map((source) => source.displayTrainingUse)).not.toContain(
+      "Not approved for training use",
+    );
   });
 
   it("keeps search and filters redaction-safe for non-admin users", () => {
@@ -328,8 +430,8 @@ describe("source ledger domain helpers", () => {
       { key: "sourceSystem", label: "Source system", value: "Smartsheet" },
       { key: "freshnessState", label: "Freshness", value: "Stale" },
     ]);
-    expect(getSourceLedgerResultSummary(9, 1, true)).toBe(
-      "1 of 9 source records match current filters.",
+    expect(getSourceLedgerResultSummary(14, 1, true)).toBe(
+      "1 of 14 source records match current filters.",
     );
     expect(getSourceLedgerNextAction(staleSource, true)).toBe(
       "Refresh this source or verify the latest source freshness.",
@@ -339,6 +441,20 @@ describe("source ledger domain helpers", () => {
     );
     expect(staleSource.ingestionHistorySummary).toBe(
       "Latest ingestion status is stale; registered 2026-05-21T12:10:00.000Z.",
+    );
+  });
+
+  it("summarizes missing approved-source gaps without inventing content", () => {
+    expect(
+      getMissingApprovedSourceSummary({
+        ...defaultSourceLedgerFilters,
+        approvalState: "approved",
+        launchOrWorkstream: "CARDIOMAX Launch",
+        owner: "Learning Solutions",
+        query: "renal dosing",
+      }),
+    ).toBe(
+      "Missing approved source: no approved source matched \"renal dosing\" for CARDIOMAX Launch. Ask Learning Solutions to attach or approve a current source.",
     );
   });
 });

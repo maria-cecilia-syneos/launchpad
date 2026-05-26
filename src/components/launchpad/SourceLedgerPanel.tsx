@@ -13,6 +13,7 @@ import {
   filterSourceLedgerResults,
   freshnessStateLabels,
   getActiveSourceLedgerFilters,
+  getMissingApprovedSourceSummary,
   getSourceLedgerResultSummary,
   hasSameSourceLedgerLocation,
   hasActiveSourceLedgerFilters,
@@ -119,6 +120,7 @@ const approvalStateOptions: SourceApprovalState[] = [
   "restricted",
   "stale",
   "inactive",
+  "superseded",
 ];
 
 const freshnessStateOptions: SourceFreshnessState[] = [
@@ -283,9 +285,20 @@ export function SourceLedgerPanel({
     );
     const storedRecord = matchingSource
       ? {
+          ...matchingSource,
           ...record,
+          contentCategory: record.contentCategory ?? matchingSource.contentCategory,
+          lastRefreshedAt: record.lastRefreshedAt ?? matchingSource.lastRefreshedAt,
+          launchOrWorkstream:
+            record.launchOrWorkstream ?? matchingSource.launchOrWorkstream,
+          relevanceSummary:
+            record.relevanceSummary ?? matchingSource.relevanceSummary,
           registeredAt: matchingSource.registeredAt,
           sourceId: matchingSource.sourceId,
+          sourceLinkHealth: record.sourceUrl
+            ? record.sourceLinkHealth
+            : matchingSource.sourceLinkHealth,
+          sourceUrl: record.sourceUrl ?? matchingSource.sourceUrl,
         }
       : record;
     const auditEvent = buildSourceRegistrationAuditEvent({
@@ -684,6 +697,17 @@ export function SourceLedgerPanel({
                 value={sourceFilters.owner}
               />
             </label>
+            <label className="grid gap-1 text-sm font-medium md:col-span-2">
+              Launch or workstream filter
+              <input
+                className="min-h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                onChange={(event) =>
+                  updateSourceFilter("launchOrWorkstream", event.target.value)
+                }
+                placeholder="Filter by launch or workstream"
+                value={sourceFilters.launchOrWorkstream}
+              />
+            </label>
           </div>
 
           <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -723,7 +747,12 @@ export function SourceLedgerPanel({
           className="rounded-md border border-border bg-card px-4 py-3 text-sm text-muted-foreground"
           role="status"
         >
-          No sources match current filters. Clear filters or adjust your search.
+          <p>No sources match current filters. Clear filters or adjust your search.</p>
+          {shouldShowMissingApprovedSourceSummary(sourceFilters) ? (
+            <p className="mt-2">
+              {getMissingApprovedSourceSummary(sourceFilters)}
+            </p>
+          ) : null}
         </div>
       ) : null}
 
@@ -836,6 +865,25 @@ function getSourceIngestionStartMessage(source: SourceLedgerRecord) {
   }
 
   return `Applying governance constraints and retrieving source context for ${source.sourceName}.`;
+}
+
+function shouldShowMissingApprovedSourceSummary(
+  filters: typeof defaultSourceLedgerFilters,
+) {
+  const hasApprovedTrainingQueryIntent =
+    /\b(approved content|approved source|approved training content|training content|training source|message house|messaging|claim|claims|value proposition|value propositions|approved asset|approved assets|training asset|training assets|asset library)\b/i.test(
+      filters.query,
+    );
+  const hasScopedApprovedSourceGap =
+    filters.approvalState === "approved" &&
+    Boolean(filters.query.trim()) &&
+    (Boolean(filters.launchOrWorkstream.trim()) ||
+      /\b(learning|training|medical|marketing)\b/i.test(filters.owner));
+
+  return (
+    hasApprovedTrainingQueryIntent ||
+    hasScopedApprovedSourceGap
+  );
 }
 
 function SourceSelect({

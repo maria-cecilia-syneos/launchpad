@@ -63,6 +63,47 @@ test("returns a no reliable source state instead of fabricated facts", async ({
   await expect(page.getByText(/source gap/i)).toBeVisible();
 });
 
+test("answers approved-content training questions with citations", async ({
+  page,
+}) => {
+  await page.goto("/agent");
+
+  await page
+    .getByRole("textbox", { name: /ask launchpad/i })
+    .fill("What approved content is available for training?");
+  await page.getByRole("button", { name: /ask launchpad/i }).click();
+
+  await expect(page.getByText(/Approved training content/i)).toBeVisible();
+  await expect(page.getByText(/State: Answered/i)).toBeVisible();
+  await expect(page.getByText(/approved for training use/i)).toBeVisible();
+  await expect(
+    page.getByRole("link", {
+      name: /^citation 1: cardiomax approved asset library from asset$/i,
+    }),
+  ).toHaveAttribute("href", "/sources#cardiomax-approved-assets");
+  await expect(
+    page.getByRole("region", { name: /generated draft/i }),
+  ).toHaveCount(0);
+});
+
+test("returns missing approved source for unavailable training content", async ({
+  page,
+}) => {
+  await page.goto("/agent");
+
+  await page
+    .getByRole("textbox", { name: /ask launchpad/i })
+    .fill("What approved training content exists for renal dosing?");
+  await page.getByRole("button", { name: /ask launchpad/i }).click();
+
+  await expect(
+    page.getByRole("heading", { name: /missing approved source/i }),
+  ).toBeVisible();
+  await expect(page.getByText(/State: No reliable source/i)).toBeVisible();
+  await expect(page.getByText(/source gap: missing approved source/i))
+    .toBeVisible();
+});
+
 test("submits answer feedback without disrupting the chat session", async ({
   page,
 }) => {

@@ -50,6 +50,11 @@ export const suggestedLaunchQuestions: SuggestedLaunchQuestion[] = [
     label: "Which assets are at risk?",
     question: "Which launch assets are at risk or missing approval?",
   },
+  {
+    id: "approved-training-content",
+    label: "Find approved training content",
+    question: "What approved content is available for training?",
+  },
 ];
 
 export function needsClarification(question: string) {

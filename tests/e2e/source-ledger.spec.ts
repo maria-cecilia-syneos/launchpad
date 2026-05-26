@@ -18,6 +18,12 @@ test("shows registered Source Ledger records on the Sources surface", async ({
     .toBeVisible();
   await expect(page.getByText("CARDIOMAX Approved Asset Library"))
     .toBeVisible();
+  await expect(page.getByText("CARDIOMAX Approved Message House"))
+    .toBeVisible();
+  await expect(page.getByText("CARDIOMAX Approved Clinical Claim Set"))
+    .toBeVisible();
+  await expect(page.getByText("CARDIOMAX Value Proposition Brief"))
+    .toBeVisible();
   await expect(page.getByText("CARDIOMAX Deployment Handoff")).toBeVisible();
   await expect(page.getByText("Source system: SharePoint").first())
     .toBeVisible();
@@ -27,14 +33,14 @@ test("shows registered Source Ledger records on the Sources surface", async ({
   await expect(page.getByText("Source system: Smartsheet").first())
     .toBeVisible();
   await expect(page.getByText("Source system: Playbook")).toBeVisible();
-  await expect(page.getByText("Source system: Asset")).toBeVisible();
+  await expect(page.getByText("Source system: Asset").first()).toBeVisible();
   await expect(page.getByText("Source system: Handoff artifact")).toBeVisible();
   await expect(page.getByText("Source-link health: Healthy").first())
     .toBeVisible();
   await expect(page.getByText("Freshness: Fresh").first()).toBeVisible();
   await expect(page.getByText("Ingestion: Complete").first()).toBeVisible();
   await expect(page.getByText("Approval: Stale")).toBeVisible();
-  await expect(page.getByText("Ingestion: Stale")).toBeVisible();
+  await expect(page.getByText("Ingestion: Stale").first()).toBeVisible();
 });
 
 test("searches, filters, and inspects Source Ledger details", async ({
@@ -46,7 +52,7 @@ test("searches, filters, and inspects Source Ledger details", async ({
     .fill("salesforce");
   await expect(
     page.getByRole("status", { name: /source result count/i }),
-  ).toContainText("1 of 9 source records match current filters");
+  ).toContainText("1 of 14 source records match current filters");
   await expect(page.getByText("CARDIOMAX Salesforce Launch Context"))
     .toBeVisible();
   await expect(page.getByText("CARDIOMAX Launch Plan")).toHaveCount(0);
@@ -54,15 +60,52 @@ test("searches, filters, and inspects Source Ledger details", async ({
   await page.getByRole("button", { name: /clear filters/i }).click();
   await page.getByRole("combobox", { name: /freshness filter/i })
     .selectOption("stale");
-  await expect(page.getByText("CARDIOMAX Smartsheet Status")).toBeVisible();
-  await expect(page.getByText("Matched freshness.")).toBeVisible();
+  const smartsheetResult = page.getByRole("article", {
+    name: /cardiomax smartsheet status/i,
+  });
+  await expect(smartsheetResult).toBeVisible();
+  await expect(smartsheetResult.getByText("Matched freshness.")).toBeVisible();
 
-  await page.getByRole("button", {
+  await smartsheetResult.getByRole("button", {
     name: /show details for cardiomax smartsheet status/i,
   }).click();
-  await expect(page.getByText(/source id:/i)).toBeVisible();
-  await expect(page.getByText(/registered:/i)).toBeVisible();
-  await expect(page.getByText(/next useful action:/i)).toBeVisible();
+  await expect(smartsheetResult.getByText(/source id:/i)).toBeVisible();
+  await expect(smartsheetResult.getByText(/registered:/i)).toBeVisible();
+  await expect(smartsheetResult.getByText(/next useful action:/i)).toBeVisible();
+});
+
+test("finds approved content for training use", async ({ page }) => {
+  await page.goto("/sources");
+
+  await page
+    .getByRole("searchbox", { name: /search sources/i })
+    .fill("value proposition");
+  await page
+    .getByRole("textbox", { name: /launch or workstream filter/i })
+    .fill("cardiomax");
+  await page
+    .getByRole("combobox", { name: /approval filter/i })
+    .selectOption("approved");
+
+  const result = page.getByRole("article", {
+    name: /cardiomax value proposition brief/i,
+  });
+
+  await expect(result).toBeVisible();
+  await expect(result).toContainText("Approved for use: Approved for training use");
+  await expect(result).toContainText("Content category: Value proposition");
+  await expect(result).toContainText("Launch or workstream: CARDIOMAX Launch");
+  await expect(result).toContainText("Last refreshed:");
+  await result
+    .getByRole("button", {
+      name: /show details for cardiomax value proposition brief/i,
+    })
+    .click();
+  await expect(
+    result.getByRole("link", {
+      name: /authorized source link: cardiomax value proposition brief/i,
+    }),
+  ).toHaveAttribute("href", "/sources#cardiomax-value-proposition-brief");
 });
 
 test("hides source registration and redacts restricted details for non-admin users", async ({
@@ -80,7 +123,7 @@ test("hides source registration and redacts restricted details for non-admin use
     page.getByText("Restricted commercial launch plan"),
   ).toHaveCount(0);
   await expect(
-    page.getByText("Restricted source details are hidden."),
+    page.getByText("Restricted source details are hidden.").first(),
   ).toBeVisible();
   await expect(page.getByText("Source system: Restricted")).toBeVisible();
 
@@ -88,7 +131,7 @@ test("hides source registration and redacts restricted details for non-admin use
     .fill("commercial");
   await expect(
     page.getByRole("status", { name: /source result count/i }),
-  ).toContainText("0 of 9 source records match current filters");
+  ).toContainText("0 of 14 source records match current filters");
   await expect(
     page.getByText("Restricted commercial launch plan"),
   ).toHaveCount(0);

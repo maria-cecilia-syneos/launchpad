@@ -394,6 +394,100 @@ describe("AgentChatShell", () => {
       .not.toBeInTheDocument();
   });
 
+  it("answers approved content questions with approved training sources only", async () => {
+    const user = userEvent.setup();
+    const onAuditEventsRecorded = vi.fn();
+
+    render(
+      <AgentChatShell
+        onAuditEventsRecorded={onAuditEventsRecorded}
+        session={defaultWorkspaceSession}
+      />,
+    );
+
+    await user.type(
+      screen.getByRole("textbox", { name: /ask launchpad/i }),
+      "What approved content is available for training?",
+    );
+    await user.click(screen.getByRole("button", { name: /ask launchpad/i }));
+
+    await screen.findByRole("heading", { name: /approved training content/i });
+    expect(screen.getByText(/state: answered/i)).toBeVisible();
+    expect(screen.getByText(/approved for training use/i)).toBeVisible();
+    expect(
+      screen.getAllByText(/cardiomax approved asset library/i).length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText(/cardiomax approved message house/i).length,
+    ).toBeGreaterThan(0);
+    expect(screen.getAllByText(/approval: approved/i).length)
+      .toBeGreaterThan(0);
+    expect(screen.getAllByText(/owner: learning solutions/i).length)
+      .toBeGreaterThan(0);
+    expect(
+      screen.queryByRole("region", { name: /generated draft/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("link", {
+        name: /^citation 1: cardiomax approved asset library from asset$/i,
+      }),
+    ).toHaveAttribute("href", "/sources#cardiomax-approved-assets");
+    expect(onAuditEventsRecorded).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          eventType: "answer.created",
+          metadata: expect.objectContaining({
+            answerId: "CARDIOMAX Launch-approved-training-content",
+            citedSourceIds: expect.arrayContaining([
+              "src-cardiomax-approved-assets",
+              "src-cardiomax-approved-message-house",
+            ]),
+          }),
+        }),
+      ]),
+    );
+  });
+
+  it("answers direct approved-asset training questions", async () => {
+    const user = userEvent.setup();
+
+    render(<AgentChatShell session={defaultWorkspaceSession} />);
+
+    await user.type(
+      screen.getByRole("textbox", { name: /ask launchpad/i }),
+      "Which approved assets are available for training?",
+    );
+    await user.click(screen.getByRole("button", { name: /ask launchpad/i }));
+
+    await screen.findByRole("heading", { name: /approved training content/i });
+    expect(
+      screen.getByRole("link", {
+        name: /^citation 1: cardiomax approved asset library from asset$/i,
+      }),
+    ).toHaveAttribute("href", "/sources#cardiomax-approved-assets");
+    expect(screen.queryByText(/cardiomax approved message house/i))
+      .not.toBeInTheDocument();
+  });
+
+  it("returns a missing approved-source answer for unavailable training content", async () => {
+    const user = userEvent.setup();
+
+    render(<AgentChatShell session={defaultWorkspaceSession} />);
+
+    await user.type(
+      screen.getByRole("textbox", { name: /ask launchpad/i }),
+      "What approved training content exists for renal dosing?",
+    );
+    await user.click(screen.getByRole("button", { name: /ask launchpad/i }));
+
+    await screen.findByRole("heading", { name: /missing approved source/i });
+    expect(screen.getByText(/state: no reliable source/i)).toBeVisible();
+    expect(screen.getByText(/source gap: missing approved source/i))
+      .toBeVisible();
+    expect(screen.queryByText(/renal dosing is approved/i))
+      .not.toBeInTheDocument();
+  });
+
   it("answers handoff readiness questions from the source-backed handoff artifact", async () => {
     const user = userEvent.setup();
 

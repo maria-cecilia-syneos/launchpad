@@ -1,5 +1,6 @@
 import { FileText, Lock, ShieldCheck } from "lucide-react";
 
+import { approvalStateLabels } from "@/domain/source-ledger";
 import type { SourceCitation } from "@/domain/answer";
 
 type SourceProvenanceChipProps = {
@@ -17,6 +18,18 @@ export function SourceProvenanceChip({ citation }: SourceProvenanceChipProps) {
       <FileText aria-hidden="true" className="h-3.5 w-3.5" />
       <span>{citation.sourceType}</span>
       <span aria-hidden="true">|</span>
+      {citation.approvalState ? (
+        <>
+          <span>Approval: {approvalStateLabels[citation.approvalState]}</span>
+          <span aria-hidden="true">|</span>
+        </>
+      ) : null}
+      {citation.owner ? (
+        <>
+          <span>Owner: {citation.owner}</span>
+          <span aria-hidden="true">|</span>
+        </>
+      ) : null}
       <span>Access: {citation.accessState}</span>
     </span>
   );

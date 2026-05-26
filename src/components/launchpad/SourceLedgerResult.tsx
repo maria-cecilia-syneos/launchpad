@@ -38,6 +38,7 @@ export function SourceLedgerResult({
   const safeSourceUrl = source.isRedacted
     ? undefined
     : normalizeSourceUrl(source.sourceUrl);
+  const sourceAnchorId = getSourceAnchorId(safeSourceUrl, source.sourceKey);
   const detailsButtonLabel = `${
     isInspecting ? "Hide" : "Show"
   } details for ${source.displayName}`;
@@ -46,6 +47,7 @@ export function SourceLedgerResult({
     <article
       aria-label={source.displayName}
       className="rounded-md border border-border bg-background px-4 py-3 text-sm leading-6"
+      id={sourceAnchorId}
     >
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0">
@@ -107,6 +109,10 @@ export function SourceLedgerResult({
         <SourceTerm label="Source system" value={source.displaySourceSystem} />
         <SourceTerm label="Source type" value={source.displaySourceType} />
         <SourceTerm
+          label="Content category"
+          value={source.displayContentCategory}
+        />
+        <SourceTerm
           label="Approval"
           value={approvalStateLabels[source.approvalState]}
         />
@@ -123,10 +129,20 @@ export function SourceLedgerResult({
           label="Source-link health"
           value={sourceLinkHealthLabels[source.sourceLinkHealth]}
         />
+        <SourceTerm label="Approved for use" value={source.displayTrainingUse} />
+        <SourceTerm
+          label="Launch or workstream"
+          value={source.displayLaunchOrWorkstream}
+        />
+        <SourceTerm label="Last refreshed" value={source.displayLastRefreshed} />
       </dl>
 
       <p className="mt-3 rounded-md border border-border bg-card px-3 py-2 text-muted-foreground">
         {source.statusMessage}
+      </p>
+
+      <p className="mt-2 rounded-md border border-border bg-card px-3 py-2 text-muted-foreground">
+        {source.relevanceSummary}
       </p>
 
       <p className="mt-2 rounded-md border border-border bg-card px-3 py-2 text-muted-foreground">
@@ -157,6 +173,10 @@ export function SourceLedgerResult({
               label="Source type"
               value={source.displaySourceType}
             />
+            <SourceDetailTerm
+              label="Content category"
+              value={source.displayContentCategory}
+            />
             <SourceDetailTerm label="Owner" value={source.displayOwner} />
             <SourceDetailTerm
               label="Approval"
@@ -182,6 +202,18 @@ export function SourceLedgerResult({
               label="Source-link health"
               value={sourceLinkHealthLabels[source.sourceLinkHealth]}
             />
+            <SourceDetailTerm
+              label="Approved for use"
+              value={source.displayTrainingUse}
+            />
+            <SourceDetailTerm
+              label="Linked launch or asset context"
+              value={source.displayLaunchOrWorkstream}
+            />
+            <SourceDetailTerm
+              label="Relevance"
+              value={source.relevanceSummary}
+            />
             {source.displaySourceId ? (
               <SourceDetailTerm
                 label="Source ID"
@@ -200,15 +232,9 @@ export function SourceLedgerResult({
                 value={source.registeredAt}
               />
             ) : null}
-            {source.lastRefreshedAt ? (
-              <SourceDetailTerm
-                label="Last refreshed"
-                value={source.lastRefreshedAt}
-              />
-            ) : null}
             <SourceDetailTerm
-              label="Related launch"
-              value="Not linked in prototype"
+              label="Last refreshed"
+              value={source.displayLastRefreshed}
             />
             <SourceDetailTerm
               label="Match rationale"
@@ -222,6 +248,7 @@ export function SourceLedgerResult({
               <SourceDetailLinkTerm
                 href={safeSourceUrl}
                 label="Authorized source link"
+                sourceTitle={source.displayName}
               />
             ) : null}
           </dl>
@@ -244,6 +271,12 @@ function SourceTerm({ label, value }: { label: string; value: string }) {
   );
 }
 
+function getSourceAnchorId(safeSourceUrl: string | undefined, sourceKey: string) {
+  const fragment = safeSourceUrl?.split("#")[1]?.trim();
+
+  return fragment || sourceKey;
+}
+
 function SourceDetailTerm({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0 rounded-md border border-border bg-background px-3 py-2">
@@ -260,9 +293,11 @@ function SourceDetailTerm({ label, value }: { label: string; value: string }) {
 function SourceDetailLinkTerm({
   href,
   label,
+  sourceTitle,
 }: {
   href: string;
   label: string;
+  sourceTitle: string;
 }) {
   return (
     <div className="min-w-0 rounded-md border border-border bg-background px-3 py-2">
@@ -272,6 +307,7 @@ function SourceDetailLinkTerm({
       <dd className="[overflow-wrap:anywhere]">
         {label}:{" "}
         <a
+          aria-label={`${label}: ${sourceTitle}`}
           className="font-medium text-syneos-orange underline-offset-4 hover:underline"
           href={href}
         >
