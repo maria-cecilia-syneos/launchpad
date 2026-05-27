@@ -15,8 +15,10 @@ import {
   getActiveSourceLedgerFilters,
   getMissingApprovedSourceSummary,
   getSourceLedgerResultSummary,
+  getTrainingImpactNoMatchSummary,
   hasSameSourceLedgerLocation,
   hasActiveSourceLedgerFilters,
+  hasTrainingImpactSearchIntent,
   ingestionStatusLabels,
   sourceSystemLabels,
   sourceTypesBySystem,
@@ -748,7 +750,11 @@ export function SourceLedgerPanel({
           role="status"
         >
           <p>No sources match current filters. Clear filters or adjust your search.</p>
-          {shouldShowMissingApprovedSourceSummary(sourceFilters) ? (
+          {hasTrainingImpactSearchIntent(sourceFilters) ? (
+            <p className="mt-2">
+              {getTrainingImpactNoMatchSummary(sourceFilters)}
+            </p>
+          ) : shouldShowMissingApprovedSourceSummary(sourceFilters) ? (
             <p className="mt-2">
               {getMissingApprovedSourceSummary(sourceFilters)}
             </p>
@@ -870,6 +876,10 @@ function getSourceIngestionStartMessage(source: SourceLedgerRecord) {
 function shouldShowMissingApprovedSourceSummary(
   filters: typeof defaultSourceLedgerFilters,
 ) {
+  if (hasTrainingImpactSearchIntent(filters)) {
+    return false;
+  }
+
   const hasApprovedTrainingQueryIntent =
     /\b(approved content|approved source|approved training content|training content|training source|message house|messaging|claim|claims|value proposition|value propositions|approved asset|approved assets|training asset|training assets|asset library)\b/i.test(
       filters.query,

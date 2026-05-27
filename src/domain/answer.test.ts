@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildApprovedTrainingContentAnswer,
+  buildTrainingImpactAnswer,
   buildTrainingSummaryDraftAnswer,
   isApprovedTrainingContentQuestion,
+  isTrainingImpactQuestion,
   isTrainingSummaryDraftQuestion,
 } from "./answer";
 
@@ -301,6 +303,149 @@ describe("training summary draft answers", () => {
           /^cardiomax-launch-training-summary-draft-[a-z0-9]+$/,
         ),
       ]),
+    );
+  });
+});
+
+describe("training impact answers", () => {
+  it("detects impact-analysis prompts without stealing draft-summary prompts", () => {
+    expect(
+      isTrainingImpactQuestion("Which training assets contain this changed claim?"),
+    ).toBe(true);
+    expect(
+      isTrainingImpactQuestion(
+        "Find assets impacted by the updated value proposition.",
+      ),
+    ).toBe(true);
+    expect(
+      isTrainingImpactQuestion("What materials are mentioning the old message?"),
+    ).toBe(true);
+    expect(
+      isTrainingImpactQuestion("Which approved source contains this claim?"),
+    ).toBe(false);
+    expect(
+      isTrainingImpactQuestion(
+        "Draft a training summary from approved sources for Learning Solutions.",
+      ),
+    ).toBe(false);
+  });
+
+  it("answers impacted-asset questions with affected assets and approved replacements", () => {
+    const answer = buildTrainingImpactAnswer(
+      "Which training assets contain this changed claim?",
+      "CARDIOMAX Launch",
+      undefined,
+      "admin",
+    );
+
+    expect(answer).toMatchObject({
+      id: expect.stringMatching(
+        /^CARDIOMAX Launch-training-impact-[a-z0-9]+$/,
+      ),
+      state: "answered",
+      title: "Impacted training assets",
+      confidence: "high",
+    });
+    expect(answer.generatedDraft).toBeUndefined();
+    expect(answer.citations.map((citation) => citation.id)).toEqual([
+      "src-cardiomax-field-training-deck",
+      "src-cardiomax-approved-clinical-claims",
+    ]);
+    expect(answer.retrievedFacts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          citationId: "src-cardiomax-field-training-deck",
+          text: expect.stringContaining("Module 2 speaker notes"),
+        }),
+        expect.objectContaining({
+          citationId: "src-cardiomax-approved-clinical-claims",
+          text: expect.stringContaining("approved replacement"),
+        }),
+      ]),
+    );
+  });
+
+  it("returns a missing-source impact state without inventing unsupported matches", () => {
+    const answer = buildTrainingImpactAnswer(
+      "Which training assets contain changed pricing language?",
+      "CARDIOMAX Launch",
+      undefined,
+      "admin",
+    );
+
+    expect(answer).toMatchObject({
+      id: expect.stringMatching(
+        /^CARDIOMAX Launch-training-impact-no-match-[a-z0-9]+$/,
+      ),
+      state: "no_reliable_source",
+      title: "No impacted training assets found",
+      confidence: "none",
+      citations: [],
+      retrievedFacts: [],
+    });
+    expect(answer.sourceGap).toContain("no matching ingested training assets");
+    expect(JSON.stringify(answer)).not.toContain("pricing language is impacted");
+  });
+
+  it("uses query-variant-safe IDs for unsupported impact answers", () => {
+    const pricingAnswer = buildTrainingImpactAnswer(
+      "Which training assets contain changed pricing language?",
+      "CARDIOMAX Launch",
+      undefined,
+      "admin",
+    );
+    const onboardingAnswer = buildTrainingImpactAnswer(
+      "Which training assets contain changed onboarding phrase?",
+      "CARDIOMAX Launch",
+      undefined,
+      "admin",
+    );
+
+    expect(pricingAnswer.id).not.toBe(onboardingAnswer.id);
+  });
+
+  it("keeps source gaps when matched impact assets are unreliable", () => {
+    const answer = buildTrainingImpactAnswer(
+      "Which training assets mention renal dosing simplification?",
+      "CARDIOMAX Launch",
+      undefined,
+      "admin",
+    );
+
+    expect(answer).toMatchObject({
+      state: "missing_information",
+      confidence: "medium",
+    });
+    expect(answer.summary).toContain(
+      "no approved replacement source is available",
+    );
+    expect(answer.sourceGap).toContain("stale, incomplete");
+  });
+
+  it("does not expose restricted impacted asset details to non-admin answer viewers", () => {
+    const answer = buildTrainingImpactAnswer(
+      "Which training assets contain the restricted competitive displacement message?",
+      "CARDIOMAX Launch",
+      undefined,
+      "project-manager",
+    );
+
+    expect(answer).toMatchObject({
+      state: "access_restricted",
+      title: "Access restricted",
+      confidence: "low",
+    });
+    expect(answer.citations).toEqual([
+      expect.objectContaining({
+        accessState: "restricted",
+        title: "Restricted training asset",
+      }),
+    ]);
+    expect(JSON.stringify(answer)).not.toContain(
+      "CARDIOMAX Restricted Objection Handling Guide",
+    );
+    expect(JSON.stringify(answer)).not.toContain(
+      "restricted competitive displacement message",
     );
   });
 });

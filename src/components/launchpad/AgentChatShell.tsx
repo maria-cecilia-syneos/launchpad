@@ -14,8 +14,10 @@ import { ArrowUp, MessageSquare, Sparkles } from "lucide-react";
 import {
   buildApprovedTrainingContentAnswer,
   buildPrototypeAnswer,
+  buildTrainingImpactAnswer,
   buildTrainingSummaryDraftAnswer,
   isApprovedTrainingContentQuestion,
+  isTrainingImpactQuestion,
   isTrainingSummaryDraftQuestion,
   type SourceBackedAnswer,
 } from "@/domain/answer";
@@ -484,6 +486,15 @@ function buildAgentAnswer({
       question,
       launchName,
       previousQuestion,
+    );
+  }
+
+  if (isTrainingImpactQuestion(question, previousQuestion)) {
+    return buildTrainingImpactAnswer(
+      question,
+      launchName,
+      previousQuestion,
+      session.user.role,
     );
   }
 

@@ -149,6 +149,42 @@ export function SourceLedgerResult({
         {source.matchRationale}
       </p>
 
+      {source.trainingImpact ? (
+        <section
+          aria-label={`Training impact for ${source.displayName}`}
+          className="mt-2 rounded-md border border-border bg-card px-3 py-2 text-muted-foreground"
+        >
+          <p className="font-medium text-foreground">
+            {source.trainingImpact.changedContentTypeLabel}:{" "}
+            {source.trainingImpact.displayChangedContent}
+          </p>
+          <p>
+            Impacted content location:{" "}
+            {source.trainingImpact.displayMatchLocation}
+          </p>
+          <p>{source.trainingImpact.displayMatchContext}</p>
+          {source.trainingImpact.approvedReplacement ? (
+            <p>
+              Approved replacement source:{" "}
+              {source.trainingImpact.approvedReplacement.title} (
+              {source.trainingImpact.approvedReplacement.trainingUseLabel}).
+            </p>
+          ) : null}
+          {source.trainingImpact.alternativeSources.length > 0 ? (
+            <p>
+              Draft or unapproved alternative:{" "}
+              {source.trainingImpact.alternativeSources
+                .map(
+                  (alternative) =>
+                    `${alternative.title} (${alternative.trainingUseLabel})`,
+                )
+                .join(", ")}
+              .
+            </p>
+          ) : null}
+        </section>
+      ) : null}
+
       {ingestionSummary ? (
         <p className="mt-2 rounded-md border border-border bg-card px-3 py-2 text-muted-foreground">
           {ingestionSummary}
@@ -240,6 +276,32 @@ export function SourceLedgerResult({
               label="Match rationale"
               value={source.matchRationale}
             />
+            {source.trainingImpact ? (
+              <>
+                <SourceDetailTerm
+                  label="Impacted content type"
+                  value={source.trainingImpact.changedContentTypeLabel}
+                />
+                <SourceDetailTerm
+                  label="Impacted content"
+                  value={source.trainingImpact.displayChangedContent}
+                />
+                <SourceDetailTerm
+                  label="Impacted content location"
+                  value={source.trainingImpact.displayMatchLocation}
+                />
+                <SourceDetailTerm
+                  label="Impact context"
+                  value={source.trainingImpact.displayMatchContext}
+                />
+                {source.trainingImpact.approvedReplacement ? (
+                  <SourceDetailTerm
+                    label="Approved replacement source"
+                    value={`${source.trainingImpact.approvedReplacement.title} (${source.trainingImpact.approvedReplacement.trainingUseLabel})`}
+                  />
+                ) : null}
+              </>
+            ) : null}
             <SourceDetailTerm
               label="Next useful action"
               value={source.nextAction}

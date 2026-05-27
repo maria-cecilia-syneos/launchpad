@@ -9,6 +9,8 @@ import {
   filterSourceLedgerResults,
   getActiveSourceLedgerFilters,
   getMissingApprovedSourceSummary,
+  getTrainingImpactNoMatchSummary,
+  hasTrainingImpactSearchIntent,
   isSourceApprovedForTrainingUse,
   getSourceLedgerNextAction,
   getSourceLedgerResultSummary,
@@ -59,7 +61,7 @@ describe("source ledger domain helpers", () => {
 
   it("redacts restricted source details for non-admin roles", () => {
     const restrictedRecord = createPrototypeSourceRecords().find(
-      (record) => record.accessState === "restricted",
+      (record) => record.sourceId === "src-restricted-commercial-plan",
     );
 
     expect(restrictedRecord).toBeDefined();
@@ -224,6 +226,8 @@ describe("source ledger domain helpers", () => {
       "CARDIOMAX Approved Asset Library",
       "CARDIOMAX Approved Message House",
       "CARDIOMAX Approved Clinical Claim Set",
+      "CARDIOMAX Field Training Deck",
+      "CARDIOMAX Coaching Checklist",
     ]);
     expect(
       filterSourceLedgerResults(visibleSources, {
@@ -250,6 +254,7 @@ describe("source ledger domain helpers", () => {
       }).map((source) => source.displayName),
     ).toEqual([
       "CARDIOMAX Smartsheet Status",
+      "CARDIOMAX Regional Workshop Slides",
       "CARDIOMAX Superseded Positioning Claims",
     ]);
     expect(
@@ -263,13 +268,20 @@ describe("source ledger domain helpers", () => {
       "CARDIOMAX Approved Message House",
       "CARDIOMAX Approved Clinical Claim Set",
       "CARDIOMAX Value Proposition Brief",
+      "CARDIOMAX Field Training Deck",
+      "CARDIOMAX Learning Module Facilitator Guide",
+      "CARDIOMAX Quick Reference Guide",
+      "CARDIOMAX Coaching Checklist",
     ]);
     expect(
       filterSourceLedgerResults(visibleSources, {
         ...defaultSourceLedgerFilters,
         accessState: "restricted",
       }).map((source) => source.displayName),
-    ).toEqual(["Restricted commercial launch plan"]);
+    ).toEqual([
+      "CARDIOMAX Restricted Objection Handling Guide",
+      "Restricted commercial launch plan",
+    ]);
     expect(
       filterSourceLedgerResults(visibleSources, {
         ...defaultSourceLedgerFilters,
@@ -332,6 +344,123 @@ describe("source ledger domain helpers", () => {
     );
   });
 
+  it("finds impacted training assets by changed claim, message, and value proposition", () => {
+    const visibleSources = filterVisibleSourceRecords(
+      createPrototypeSourceRecords(),
+      "admin",
+    );
+
+    const claimResults = filterSourceLedgerResults(visibleSources, {
+      ...defaultSourceLedgerFilters,
+      launchOrWorkstream: "cardiomax",
+      query: "changed claim",
+    });
+    const messageResults = filterSourceLedgerResults(visibleSources, {
+      ...defaultSourceLedgerFilters,
+      query: "old message",
+    });
+    const valuePropositionResults = filterSourceLedgerResults(visibleSources, {
+      ...defaultSourceLedgerFilters,
+      query: "updated value proposition",
+    });
+    const phraseResults = filterSourceLedgerResults(visibleSources, {
+      ...defaultSourceLedgerFilters,
+      query: "changed phrase",
+    });
+
+    expect(claimResults).toEqual([
+      expect.objectContaining({
+        displayName: "CARDIOMAX Field Training Deck",
+        matchRationale: expect.stringContaining("changed content"),
+        trainingImpact: expect.objectContaining({
+          approvedReplacement: expect.objectContaining({
+            sourceId: "src-cardiomax-approved-clinical-claims",
+            title: "CARDIOMAX Approved Clinical Claim Set",
+          }),
+          alternativeSources: expect.arrayContaining([
+            expect.objectContaining({
+              sourceId: "src-cardiomax-draft-claim-language",
+              trainingUseLabel: "Not approved for training use",
+            }),
+            expect.objectContaining({
+              sourceId: "src-cardiomax-superseded-positioning-claims",
+              trainingUseLabel: "Not approved for training use",
+            }),
+          ]),
+          changedContentTypeLabel: "Changed claim",
+          displayChangedContent: "30-day adherence improvement",
+          displayMatchLocation: "Module 2 speaker notes",
+        }),
+      }),
+    ]);
+    expect(messageResults.map((source) => source.displayName)).toEqual([
+      "CARDIOMAX Learning Module Facilitator Guide",
+    ]);
+    expect(valuePropositionResults.map((source) => source.displayName)).toEqual([
+      "CARDIOMAX Quick Reference Guide",
+    ]);
+    expect(phraseResults.map((source) => source.displayName)).toEqual([
+      "CARDIOMAX Coaching Checklist",
+    ]);
+  });
+
+  it("summarizes no-match impact searches without implying approved-source discovery", () => {
+    const filters = {
+      ...defaultSourceLedgerFilters,
+      launchOrWorkstream: "CARDIOMAX Launch",
+      query: "changed pricing phrase",
+    };
+
+    expect(hasTrainingImpactSearchIntent(filters)).toBe(true);
+    expect(
+      hasTrainingImpactSearchIntent("Which approved source contains this claim?"),
+    ).toBe(false);
+    expect(getTrainingImpactNoMatchSummary(filters)).toBe(
+      "No impacted training assets found: no matching ingested training assets were found for \"changed pricing phrase\" for CARDIOMAX Launch. Results may be incomplete if sources are missing, stale, restricted, inaccessible, or not yet ingested.",
+    );
+  });
+
+  it("keeps restricted impacted asset details hidden from non-admin searches", () => {
+    const records = createPrototypeSourceRecords();
+    const adminVisibleSources = filterVisibleSourceRecords(records, "admin");
+    const nonAdminVisibleSources = filterVisibleSourceRecords(
+      records,
+      "project-manager",
+    );
+
+    const adminResults = filterSourceLedgerResults(adminVisibleSources, {
+      ...defaultSourceLedgerFilters,
+      query: "restricted competitive displacement message",
+    });
+    const nonAdminResults = filterSourceLedgerResults(nonAdminVisibleSources, {
+      ...defaultSourceLedgerFilters,
+      query: "restricted competitive displacement message",
+    });
+    const restrictedSourcesForNonAdmin = filterSourceLedgerResults(
+      nonAdminVisibleSources,
+      {
+        ...defaultSourceLedgerFilters,
+        accessState: "restricted",
+      },
+    );
+
+    expect(adminResults).toEqual([
+      expect.objectContaining({
+        displayName: "CARDIOMAX Restricted Objection Handling Guide",
+        trainingImpact: expect.objectContaining({
+          displayChangedContent: "restricted competitive displacement message",
+        }),
+      }),
+    ]);
+    expect(nonAdminResults).toEqual([]);
+    expect(JSON.stringify(restrictedSourcesForNonAdmin)).not.toContain(
+      "Restricted Objection Handling Guide",
+    );
+    expect(JSON.stringify(restrictedSourcesForNonAdmin)).not.toContain(
+      "restricted competitive displacement message",
+    );
+  });
+
   it("does not treat unsynced or not-approved training records as approved for use", () => {
     const syncedApprovedSource = createPrototypeSourceRecords().find(
       (source) => source.sourceId === "src-cardiomax-approved-clinical-claims",
@@ -364,6 +493,10 @@ describe("source ledger domain helpers", () => {
       "CARDIOMAX Approved Message House",
       "CARDIOMAX Approved Clinical Claim Set",
       "CARDIOMAX Value Proposition Brief",
+      "CARDIOMAX Field Training Deck",
+      "CARDIOMAX Learning Module Facilitator Guide",
+      "CARDIOMAX Quick Reference Guide",
+      "CARDIOMAX Coaching Checklist",
     ]);
     expect(results.map((source) => source.displayTrainingUse)).not.toContain(
       "Not approved for training use",
@@ -389,6 +522,11 @@ describe("source ledger domain helpers", () => {
     });
 
     expect(restrictedResults).toEqual([
+      expect.objectContaining({
+        displayName: "Restricted source",
+        displayOwner: "Restricted",
+        matchRationale: "Matched access.",
+      }),
       expect.objectContaining({
         displayName: "Restricted source",
         displayOwner: "Restricted",
@@ -430,8 +568,8 @@ describe("source ledger domain helpers", () => {
       { key: "sourceSystem", label: "Source system", value: "Smartsheet" },
       { key: "freshnessState", label: "Freshness", value: "Stale" },
     ]);
-    expect(getSourceLedgerResultSummary(14, 1, true)).toBe(
-      "1 of 14 source records match current filters.",
+    expect(getSourceLedgerResultSummary(15, 1, true)).toBe(
+      "1 of 15 source records match current filters.",
     );
     expect(getSourceLedgerNextAction(staleSource, true)).toBe(
       "Refresh this source or verify the latest source freshness.",
@@ -441,6 +579,21 @@ describe("source ledger domain helpers", () => {
     );
     expect(staleSource.ingestionHistorySummary).toBe(
       "Latest ingestion status is stale; registered 2026-05-21T12:10:00.000Z.",
+    );
+  });
+
+  it("keeps unreliable impacted-source actions stricter than generic impact guidance", () => {
+    const visibleSources = filterVisibleSourceRecords(
+      createPrototypeSourceRecords(),
+      "admin",
+    );
+    const impactedDraft = filterSourceLedgerResults(visibleSources, {
+      ...defaultSourceLedgerFilters,
+      query: "renal dosing",
+    })[0];
+
+    expect(getSourceLedgerNextAction(impactedDraft, true)).toBe(
+      "Do not use for training until an authorized reviewer approves it.",
     );
   });
 

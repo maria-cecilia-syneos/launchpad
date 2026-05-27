@@ -63,10 +63,49 @@ export type SourceContentCategory =
   | "claim"
   | "launch_context"
   | "messaging"
+  | "training_asset"
   | "training_source"
   | "value_proposition";
 
 export type SourceTrainingUseState = "approved" | "not_approved";
+
+export type TrainingImpactContentType =
+  | "claim"
+  | "message"
+  | "phrase"
+  | "value_proposition";
+
+export type SourceTrainingImpactMetadata = {
+  approvedReplacementSourceId?: string;
+  alternativeSourceIds?: string[];
+  changedContent: string;
+  changedContentType: TrainingImpactContentType;
+  keywords?: string[];
+  matchContext: string;
+  matchLocation: string;
+};
+
+export type TrainingImpactReplacementSummary = {
+  approvalState: SourceApprovalState;
+  href?: string;
+  owner: string;
+  sourceId: string;
+  title: string;
+  trainingUseLabel: string;
+};
+
+export type VisibleTrainingImpactMetadata = {
+  alternativeSources: TrainingImpactReplacementSummary[];
+  alternativeSourceIds: string[];
+  approvedReplacement?: TrainingImpactReplacementSummary;
+  approvedReplacementSourceId?: string;
+  changedContentType: TrainingImpactContentType;
+  changedContentTypeLabel: string;
+  displayChangedContent: string;
+  displayMatchContext: string;
+  displayMatchLocation: string;
+  searchKeywords: string[];
+};
 
 export type SourceRegistrationInput = {
   contentCategory?: SourceContentCategory;
@@ -83,6 +122,7 @@ export type SourceRegistrationInput = {
   objectId?: string;
   sourceLinkHealth?: SourceLinkHealthState;
   sourceUrl?: string;
+  trainingImpact?: SourceTrainingImpactMetadata;
 };
 
 export type SourceLedgerRecord = Omit<
@@ -119,6 +159,7 @@ export type VisibleSourceLedgerRecord = {
   sourceKey: string;
   sourceUrl?: string;
   statusMessage: string;
+  trainingImpact?: VisibleTrainingImpactMetadata;
   trainingUseState: SourceTrainingUseState;
 };
 
@@ -231,8 +272,19 @@ export const contentCategoryLabels: Record<SourceContentCategory, string> = {
   claim: "Claim",
   launch_context: "Launch context",
   messaging: "Messaging",
+  training_asset: "Training asset",
   training_source: "Training source",
   value_proposition: "Value proposition",
+};
+
+export const trainingImpactContentTypeLabels: Record<
+  TrainingImpactContentType,
+  string
+> = {
+  claim: "Changed claim",
+  message: "Changed message",
+  phrase: "Changed phrase",
+  value_proposition: "Changed value proposition",
 };
 
 export const sourceTypesBySystem: Record<
@@ -420,6 +472,17 @@ export function buildSourceRegistrationRecord(
         sourceUrl: normalizedSourceUrl,
       }),
     sourceUrl: normalizedSourceUrl,
+    trainingImpact: input.trainingImpact
+      ? {
+          ...input.trainingImpact,
+          alternativeSourceIds: input.trainingImpact.alternativeSourceIds
+            ? [...input.trainingImpact.alternativeSourceIds]
+            : undefined,
+          keywords: input.trainingImpact.keywords
+            ? [...input.trainingImpact.keywords]
+            : undefined,
+        }
+      : undefined,
   };
 }
 
@@ -682,6 +745,228 @@ export function createPrototypeSourceRecords(): SourceLedgerRecord[] {
     buildSourceRegistrationRecord(
       {
         accessState: "authorized",
+        approvalState: "approved",
+        contentCategory: "training_asset",
+        freshnessState: "fresh",
+        ingestionStatus: "complete",
+        launchOrWorkstream: "CARDIOMAX Launch",
+        objectId: "asset-cardiomax-field-training-deck",
+        owningTeam: "Learning Solutions",
+        relevanceSummary:
+          "Training asset impacted by retired launch curriculum language.",
+        sourceName: "CARDIOMAX Field Training Deck",
+        sourceSystem: "asset",
+        sourceType: "approved_asset",
+        sourceUrl: "/sources#cardiomax-field-training-deck",
+        trainingImpact: {
+          alternativeSourceIds: [
+            "src-cardiomax-draft-claim-language",
+            "src-cardiomax-superseded-positioning-claims",
+          ],
+          approvedReplacementSourceId:
+            "src-cardiomax-approved-clinical-claims",
+          changedContent: "30-day adherence improvement",
+          changedContentType: "claim",
+          keywords: [
+            "changed claim",
+            "old claim",
+            "retired claim",
+            "30-day adherence improvement",
+          ],
+          matchContext:
+            "Speaker notes still reference the retired 30-day adherence improvement claim.",
+          matchLocation: "Module 2 speaker notes",
+        },
+      },
+      {
+        lastRefreshedAt: "2026-05-26T11:05:00.000Z",
+        registeredAt: "2026-05-21T12:38:00.000Z",
+        sourceId: "src-cardiomax-field-training-deck",
+      },
+    ),
+    buildSourceRegistrationRecord(
+      {
+        accessState: "authorized",
+        approvalState: "approved",
+        contentCategory: "training_asset",
+        freshnessState: "watch",
+        ingestionStatus: "complete",
+        launchOrWorkstream: "CARDIOMAX Launch",
+        objectId: "word-cardiomax-learning-module-facilitator-guide",
+        owningTeam: "Learning Solutions",
+        relevanceSummary:
+          "Training asset impacted by old core narrative language.",
+        sourceName: "CARDIOMAX Learning Module Facilitator Guide",
+        sourceSystem: "word_pdf",
+        sourceType: "word_document",
+        sourceUrl: "/sources#cardiomax-learning-module-facilitator-guide",
+        trainingImpact: {
+          approvedReplacementSourceId:
+            "src-cardiomax-approved-message-house",
+          changedContent: "fastest path to confident starts",
+          changedContentType: "message",
+          keywords: [
+            "old message",
+            "changed message",
+            "core narrative",
+            "fastest path to confident starts",
+          ],
+          matchContext:
+            "Opening facilitation notes still use the old core narrative message.",
+          matchLocation: "Opening activity facilitation notes",
+        },
+      },
+      {
+        lastRefreshedAt: "2026-05-26T11:10:00.000Z",
+        registeredAt: "2026-05-21T12:40:00.000Z",
+        sourceId: "src-cardiomax-learning-module-facilitator-guide",
+      },
+    ),
+    buildSourceRegistrationRecord(
+      {
+        accessState: "authorized",
+        approvalState: "approved",
+        contentCategory: "training_asset",
+        freshnessState: "fresh",
+        ingestionStatus: "complete",
+        launchOrWorkstream: "CARDIOMAX Launch",
+        objectId: "sharepoint-cardiomax-quick-reference-guide",
+        owningTeam: "Learning Solutions",
+        relevanceSummary:
+          "Training asset impacted by updated positioning language.",
+        sourceName: "CARDIOMAX Quick Reference Guide",
+        sourceSystem: "sharepoint",
+        sourceType: "sharepoint_site",
+        sourceUrl: "/sources#cardiomax-quick-reference-guide",
+        trainingImpact: {
+          approvedReplacementSourceId:
+            "src-cardiomax-value-proposition-brief",
+          changedContent: "simple start, stronger follow-through",
+          changedContentType: "value_proposition",
+          keywords: [
+            "updated value proposition",
+            "changed value proposition",
+            "simple start stronger follow-through",
+          ],
+          matchContext:
+            "Front-page callout uses the prior value proposition before the approved brief update.",
+          matchLocation: "Front-page value proposition callout",
+        },
+      },
+      {
+        lastRefreshedAt: "2026-05-26T11:12:00.000Z",
+        registeredAt: "2026-05-21T12:42:00.000Z",
+        sourceId: "src-cardiomax-quick-reference-guide",
+      },
+    ),
+    buildSourceRegistrationRecord(
+      {
+        accessState: "authorized",
+        approvalState: "approved",
+        contentCategory: "training_asset",
+        freshnessState: "fresh",
+        ingestionStatus: "complete",
+        launchOrWorkstream: "CARDIOMAX Launch",
+        objectId: "asset-cardiomax-coaching-checklist",
+        owningTeam: "Learning Solutions",
+        relevanceSummary:
+          "Training asset impacted by changed facilitator phrase guidance.",
+        sourceName: "CARDIOMAX Coaching Checklist",
+        sourceSystem: "asset",
+        sourceType: "approved_asset",
+        sourceUrl: "/sources#cardiomax-coaching-checklist",
+        trainingImpact: {
+          approvedReplacementSourceId:
+            "src-cardiomax-approved-message-house",
+          changedContent: "lead with speed to therapy",
+          changedContentType: "phrase",
+          keywords: [
+            "changed phrase",
+            "retired phrase",
+            "lead with speed to therapy",
+          ],
+          matchContext:
+            "Coaching checklist still uses the retired facilitator phrase.",
+          matchLocation: "Facilitator coaching checklist prompt",
+        },
+      },
+      {
+        lastRefreshedAt: "2026-05-26T11:14:00.000Z",
+        registeredAt: "2026-05-21T12:43:00.000Z",
+        sourceId: "src-cardiomax-coaching-checklist",
+      },
+    ),
+    buildSourceRegistrationRecord(
+      {
+        accessState: "authorized",
+        approvalState: "draft",
+        contentCategory: "training_asset",
+        freshnessState: "stale",
+        ingestionStatus: "incomplete",
+        launchOrWorkstream: "CARDIOMAX Launch",
+        objectId: "asset-cardiomax-regional-workshop-slides",
+        owningTeam: "Learning Solutions",
+        relevanceSummary:
+          "Incomplete draft workshop asset with unreliable changed-content metadata.",
+        sourceName: "CARDIOMAX Regional Workshop Slides",
+        sourceSystem: "asset",
+        sourceType: "approved_asset",
+        sourceUrl: "/sources#cardiomax-regional-workshop-slides",
+        trainingImpact: {
+          changedContent: "renal dosing simplification",
+          changedContentType: "claim",
+          keywords: [
+            "renal dosing",
+            "changed renal dosing claim",
+            "unapproved claim",
+          ],
+          matchContext:
+            "Breakout slide metadata references renal dosing simplification, but ingestion is incomplete.",
+          matchLocation: "Breakout slide 7",
+        },
+      },
+      {
+        lastRefreshedAt: "2026-05-18T11:15:00.000Z",
+        registeredAt: "2026-05-21T12:44:00.000Z",
+        sourceId: "src-cardiomax-regional-workshop-slides",
+      },
+    ),
+    buildSourceRegistrationRecord(
+      {
+        accessState: "restricted",
+        approvalState: "restricted",
+        contentCategory: "training_asset",
+        freshnessState: "restricted",
+        ingestionStatus: "restricted",
+        launchOrWorkstream: "CARDIOMAX Launch",
+        objectId: "asset-cardiomax-restricted-objection-guide",
+        owningTeam: "Commercial Strategy",
+        relevanceSummary: "Restricted training impact details are hidden.",
+        sourceName: "CARDIOMAX Restricted Objection Handling Guide",
+        sourceSystem: "asset",
+        sourceType: "approved_asset",
+        trainingImpact: {
+          approvedReplacementSourceId:
+            "src-cardiomax-approved-message-house",
+          changedContent: "restricted competitive displacement message",
+          changedContentType: "message",
+          keywords: [
+            "restricted competitive displacement message",
+            "restricted message",
+          ],
+          matchContext:
+            "Restricted objection-handling notes contain changed competitive messaging.",
+          matchLocation: "Objection handling appendix",
+        },
+      },
+      {
+        registeredAt: "2026-05-21T12:46:00.000Z",
+        sourceId: "src-cardiomax-restricted-objection-handling",
+      },
+    ),
+    buildSourceRegistrationRecord(
+      {
+        accessState: "authorized",
         approvalState: "draft",
         contentCategory: "claim",
         freshnessState: "fresh",
@@ -825,6 +1110,7 @@ export function toVisibleSourceRecord(
     sourceKey: record.sourceId,
     sourceUrl: record.sourceUrl,
     statusMessage: getSourceStatusMessage(record),
+    trainingImpact: getVisibleTrainingImpact(record),
     trainingUseState: isSourceApprovedForTrainingUse(record)
       ? "approved"
       : "not_approved",
@@ -843,12 +1129,35 @@ export function filterSourceLedgerResults(
   filters: SourceLedgerFilters,
   options: { isAdmin?: boolean } = {},
 ): SourceLedgerSearchResult[] {
+  const visibleSourceById = new Map(
+    visibleSources
+      .filter((source) => source.displaySourceId)
+      .map((source) => [source.displaySourceId!, source]),
+  );
+
   return visibleSources
+    .map((source) => {
+      const trainingImpact = getResolvedVisibleTrainingImpact(
+        source,
+        visibleSourceById,
+      );
+
+      return {
+        ...source,
+        trainingImpact,
+      };
+    })
     .filter((source) => sourceMatchesFilters(source, filters))
     .map((source) => ({
       ...source,
-      matchRationale: getSourceMatchRationale(source, filters),
-      nextAction: getSourceLedgerNextAction(source, Boolean(options.isAdmin)),
+        matchRationale: getSourceMatchRationale(
+          source,
+          filters,
+        ),
+        nextAction: getSourceLedgerNextAction(
+          source,
+          Boolean(options.isAdmin),
+        ),
     }));
 }
 
@@ -960,6 +1269,48 @@ export function getMissingApprovedSourceSummary(filters: SourceLedgerFilters) {
   return `Missing approved source: no approved source matched "${requestedContent}"${scope}. Ask ${owner} to attach or approve a current source.`;
 }
 
+export function getTrainingImpactNoMatchSummary(filters: SourceLedgerFilters) {
+  const requestedContent = filters.query.trim() || "the changed content";
+  const launchOrWorkstream = filters.launchOrWorkstream.trim();
+  const scope = launchOrWorkstream ? ` for ${launchOrWorkstream}` : "";
+
+  return `No impacted training assets found: no matching ingested training assets were found for "${requestedContent}"${scope}. Results may be incomplete if sources are missing, stale, restricted, inaccessible, or not yet ingested.`;
+}
+
+export function hasTrainingImpactSearchIntent(
+  filtersOrQuery: SourceLedgerFilters | string,
+) {
+  const query =
+    typeof filtersOrQuery === "string"
+      ? filtersOrQuery
+      : filtersOrQuery.query;
+  const normalizedQuery = normalizeSearchValue(query);
+
+  if (!normalizedQuery) {
+    return false;
+  }
+
+  const asksForApprovedSource =
+    /\b(approved content|approved training content|approved source|approved sources|approved training source|approved training sources|source for|sources for)\b/i.test(
+      normalizedQuery,
+    );
+
+  if (asksForApprovedSource) {
+    return false;
+  }
+
+  const hasImpactQualifier =
+    /\b(changed|updated|old|outdated|retired|superseded|impact|impacted|impacts|impacting)\b/i.test(
+      normalizedQuery,
+    );
+  const hasImpactObject =
+    /\b(claim|claims|message|messaging|value proposition|value propositions|phrase|content)\b/i.test(
+      normalizedQuery,
+    );
+
+  return hasImpactQualifier && hasImpactObject;
+}
+
 export function getSourceLedgerNextAction(
   source: Pick<
     VisibleSourceLedgerRecord,
@@ -969,6 +1320,7 @@ export function getSourceLedgerNextAction(
     | "ingestionStatus"
     | "isRedacted"
     | "sourceLinkHealth"
+    | "trainingImpact"
   >,
   isAdmin = false,
 ) {
@@ -1021,6 +1373,12 @@ export function getSourceLedgerNextAction(
     return isAdmin
       ? "Review source-link permissions before opening this source."
       : "Source-link access is restricted.";
+  }
+
+  if (source.trainingImpact) {
+    return source.trainingImpact.approvedReplacement
+      ? "Update this impacted training asset with the approved replacement source."
+      : "Verify impacted content against current approved sources before reuse.";
   }
 
   return isAdmin
@@ -1154,6 +1512,10 @@ function getQueryMatchLabels(source: VisibleSourceLedgerRecord, query: string) {
     return trainingUseMatchLabel ? [trainingUseMatchLabel] : [];
   }
 
+  const trainingImpactMatchLabels = getTrainingImpactQueryMatchLabels(
+    source,
+    query,
+  );
   const values: Array<{ label: string; value?: string }> = [
     { label: "content category", value: source.displayContentCategory },
     {
@@ -1185,7 +1547,82 @@ function getQueryMatchLabels(source: VisibleSourceLedgerRecord, query: string) {
     labels.push(trainingUseMatchLabel);
   }
 
-  return labels;
+  return [...trainingImpactMatchLabels, ...labels];
+}
+
+function getTrainingImpactQueryMatchLabels(
+  source: VisibleSourceLedgerRecord,
+  query: string,
+) {
+  const impact = source.trainingImpact;
+
+  if (!impact) {
+    return [];
+  }
+
+  const hasImpactIntent = hasTrainingImpactSearchIntent(query);
+  const impactValues = [
+    impact.displayChangedContent,
+    impact.displayMatchContext,
+    impact.displayMatchLocation,
+    impact.approvedReplacement?.title,
+    impact.approvedReplacement?.owner,
+    ...impact.searchKeywords,
+    ...impact.alternativeSources.map((source) => source.title),
+  ];
+  const hasSpecificImpactText = matchesTrainingImpactText(
+    query,
+    hasImpactIntent ? impactValues : [impact.displayChangedContent],
+  );
+
+  if (hasSpecificImpactText) {
+    return ["changed content"];
+  }
+
+  return [];
+}
+
+export function sourceTrainingImpactMatchesQuery(
+  source: Pick<
+    SourceLedgerRecord,
+    "contentCategory" | "relevanceSummary" | "sourceName" | "trainingImpact"
+  >,
+  query: string,
+) {
+  const impact = source.trainingImpact;
+  const normalizedQuery = normalizeSearchValue(query);
+
+  if (!impact || !normalizedQuery) {
+    return false;
+  }
+
+  const hasImpactIntent = hasTrainingImpactSearchIntent(normalizedQuery);
+  const impactValues = [
+    impact.changedContent,
+    impact.matchContext,
+    impact.matchLocation,
+    ...(impact.keywords ?? []),
+  ];
+  const hasSpecificImpactText = matchesTrainingImpactText(
+    normalizedQuery,
+    hasImpactIntent ? impactValues : [impact.changedContent],
+  );
+
+  return hasSpecificImpactText;
+}
+
+function matchesTrainingImpactText(query: string, values: Array<string | undefined>) {
+  return (
+    query.length >= 4 &&
+    values.some((value) => {
+      const normalizedValue = normalizeSearchValue(value);
+
+      return (
+        normalizedValue.length >= 4 &&
+        (normalizedValue.includes(query) || query.includes(normalizedValue))
+      );
+    })
+  );
 }
 
 function normalizeSearchValue(value?: string) {
@@ -1230,6 +1667,89 @@ function getTrainingUseQueryMatchLabel(
   return normalizeSearchValue(source.displayTrainingUse).includes(query)
     ? "training use"
     : undefined;
+}
+
+function getVisibleTrainingImpact(
+  record: SourceLedgerRecord,
+): VisibleTrainingImpactMetadata | undefined {
+  if (!record.trainingImpact) {
+    return undefined;
+  }
+
+  return {
+    alternativeSourceIds: record.trainingImpact.alternativeSourceIds ?? [],
+    alternativeSources: [],
+    approvedReplacementSourceId:
+      record.trainingImpact.approvedReplacementSourceId,
+    changedContentType: record.trainingImpact.changedContentType,
+    changedContentTypeLabel:
+      trainingImpactContentTypeLabels[record.trainingImpact.changedContentType],
+    displayChangedContent: record.trainingImpact.changedContent,
+    displayMatchContext: record.trainingImpact.matchContext,
+    displayMatchLocation: record.trainingImpact.matchLocation,
+    searchKeywords: record.trainingImpact.keywords ?? [],
+  };
+}
+
+function getResolvedVisibleTrainingImpact(
+  source: VisibleSourceLedgerRecord,
+  visibleSourceById: Map<string, VisibleSourceLedgerRecord>,
+): VisibleTrainingImpactMetadata | undefined {
+  const impact = source.trainingImpact;
+
+  if (!impact) {
+    return undefined;
+  }
+
+  const approvedReplacement =
+    impact.approvedReplacementSourceId
+      ? getApprovedTrainingImpactReplacement(
+          visibleSourceById.get(impact.approvedReplacementSourceId),
+        )
+      : undefined;
+  const alternativeSources = impact.alternativeSourceIds
+    .map((sourceId) =>
+      getTrainingImpactReplacementSummary(visibleSourceById.get(sourceId)),
+    )
+    .filter(
+      (
+        replacement,
+      ): replacement is TrainingImpactReplacementSummary =>
+        Boolean(replacement),
+    );
+
+  return {
+    ...impact,
+    alternativeSources,
+    approvedReplacement,
+  };
+}
+
+function getApprovedTrainingImpactReplacement(
+  source?: VisibleSourceLedgerRecord,
+) {
+  if (!source || source.trainingUseState !== "approved") {
+    return undefined;
+  }
+
+  return getTrainingImpactReplacementSummary(source);
+}
+
+function getTrainingImpactReplacementSummary(
+  source?: VisibleSourceLedgerRecord,
+): TrainingImpactReplacementSummary | undefined {
+  if (!source || source.isRedacted || !source.displaySourceId) {
+    return undefined;
+  }
+
+  return {
+    approvalState: source.approvalState,
+    href: source.sourceUrl,
+    owner: source.displayOwner,
+    sourceId: source.displaySourceId,
+    title: source.displayName,
+    trainingUseLabel: source.displayTrainingUse,
+  };
 }
 
 function getVisibleIngestionHistorySummary(record: SourceLedgerRecord) {

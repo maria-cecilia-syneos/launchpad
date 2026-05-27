@@ -517,6 +517,53 @@ describe("AgentChatShell", () => {
     );
   });
 
+  it("routes impact-analysis questions before approved-content discovery", async () => {
+    const user = userEvent.setup();
+    const onAuditEventsRecorded = vi.fn();
+
+    render(
+      <AgentChatShell
+        onAuditEventsRecorded={onAuditEventsRecorded}
+        session={defaultWorkspaceSession}
+      />,
+    );
+
+    await user.type(
+      screen.getByRole("textbox", { name: /ask launchpad/i }),
+      "Which training assets contain this changed claim?",
+    );
+    await user.click(screen.getByRole("button", { name: /ask launchpad/i }));
+
+    await screen.findByRole("heading", { name: /impacted training assets/i });
+    expect(screen.getAllByText(/cardiomax field training deck/i).length)
+      .toBeGreaterThan(0);
+    expect(screen.getByText(/module 2 speaker notes/i)).toBeVisible();
+    expect(screen.getAllByText(/cardiomax approved clinical claim set/i).length)
+      .toBeGreaterThan(0);
+    expect(
+      screen.queryByRole("heading", { name: /approved training content/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("region", { name: /generated draft/i }),
+    ).not.toBeInTheDocument();
+    expect(onAuditEventsRecorded).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          eventType: "answer.created",
+          metadata: expect.objectContaining({
+            answerId: expect.stringMatching(
+              /^CARDIOMAX Launch-training-impact-[a-z0-9]+$/,
+            ),
+            citedSourceIds: expect.arrayContaining([
+              "src-cardiomax-field-training-deck",
+              "src-cardiomax-approved-clinical-claims",
+            ]),
+          }),
+        }),
+      ]),
+    );
+  });
+
   it("answers direct approved-asset training questions", async () => {
     const user = userEvent.setup();
 
@@ -536,6 +583,23 @@ describe("AgentChatShell", () => {
     ).toHaveAttribute("href", "/sources#cardiomax-approved-assets");
     expect(screen.queryByText(/cardiomax approved message house/i))
       .not.toBeInTheDocument();
+  });
+
+  it("does not route approved-source wording to impact analysis", async () => {
+    const user = userEvent.setup();
+
+    render(<AgentChatShell session={defaultWorkspaceSession} />);
+
+    await user.type(
+      screen.getByRole("textbox", { name: /ask launchpad/i }),
+      "Which approved source contains this claim?",
+    );
+    await user.click(screen.getByRole("button", { name: /ask launchpad/i }));
+
+    await screen.findByRole("heading", { name: /approved training content/i });
+    expect(
+      screen.queryByRole("heading", { name: /impacted training assets/i }),
+    ).not.toBeInTheDocument();
   });
 
   it("returns a missing approved-source answer for unavailable training content", async () => {

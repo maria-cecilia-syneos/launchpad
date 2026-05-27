@@ -114,6 +114,32 @@ test("drafts training summaries from approved sources with review guardrails", a
   await expect(page.getByText(/Draft saved for review/).first()).toBeVisible();
 });
 
+test("answers impacted training asset questions without drafting content", async ({
+  page,
+}) => {
+  await page.goto("/agent");
+
+  await page
+    .getByRole("textbox", { name: /ask launchpad/i })
+    .fill("Which training assets contain this changed claim?");
+  await page.getByRole("button", { name: /ask launchpad/i }).click();
+
+  await expect(
+    page.getByRole("heading", { name: /impacted training assets/i }),
+  ).toBeVisible();
+  await expect(page.getByText(/CARDIOMAX Field Training Deck/i).first())
+    .toBeVisible();
+  await expect(page.getByText(/Module 2 speaker notes/i)).toBeVisible();
+  await expect(
+    page.getByRole("link", {
+      name: /^citation 2: cardiomax approved clinical claim set from asset$/i,
+    }),
+  ).toHaveAttribute("href", "/sources#cardiomax-approved-clinical-claims");
+  await expect(
+    page.getByRole("region", { name: /generated draft/i }),
+  ).toHaveCount(0);
+});
+
 test("returns missing approved source for unavailable training content", async ({
   page,
 }) => {

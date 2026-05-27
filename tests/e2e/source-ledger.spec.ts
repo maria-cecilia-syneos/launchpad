@@ -16,13 +16,19 @@ test("shows registered Source Ledger records on the Sources surface", async ({
     .toBeVisible();
   await expect(page.getByText("CARDIOMAX Tier 2 Launch Playbook"))
     .toBeVisible();
-  await expect(page.getByText("CARDIOMAX Approved Asset Library"))
+  await expect(page.getByRole("heading", { name: "CARDIOMAX Approved Asset Library" }))
     .toBeVisible();
-  await expect(page.getByText("CARDIOMAX Approved Message House"))
+  await expect(page.getByRole("heading", { name: "CARDIOMAX Approved Message House" }))
     .toBeVisible();
-  await expect(page.getByText("CARDIOMAX Approved Clinical Claim Set"))
+  await expect(page.getByRole("heading", { name: "CARDIOMAX Approved Clinical Claim Set" }))
     .toBeVisible();
-  await expect(page.getByText("CARDIOMAX Value Proposition Brief"))
+  await expect(page.getByRole("heading", { name: "CARDIOMAX Value Proposition Brief" }))
+    .toBeVisible();
+  await expect(page.getByRole("heading", { name: "CARDIOMAX Field Training Deck" }))
+    .toBeVisible();
+  await expect(page.getByRole("heading", { name: "CARDIOMAX Learning Module Facilitator Guide" }))
+    .toBeVisible();
+  await expect(page.getByRole("heading", { name: "CARDIOMAX Quick Reference Guide" }))
     .toBeVisible();
   await expect(page.getByText("CARDIOMAX Deployment Handoff")).toBeVisible();
   await expect(page.getByText("Source system: SharePoint").first())
@@ -52,7 +58,7 @@ test("searches, filters, and inspects Source Ledger details", async ({
     .fill("salesforce");
   await expect(
     page.getByRole("status", { name: /source result count/i }),
-  ).toContainText("1 of 14 source records match current filters");
+  ).toContainText("1 of 20 source records match current filters");
   await expect(page.getByText("CARDIOMAX Salesforce Launch Context"))
     .toBeVisible();
   await expect(page.getByText("CARDIOMAX Launch Plan")).toHaveCount(0);
@@ -108,6 +114,51 @@ test("finds approved content for training use", async ({ page }) => {
   ).toHaveAttribute("href", "/sources#cardiomax-value-proposition-brief");
 });
 
+test("finds impacted training assets and replacement guidance", async ({
+  page,
+}) => {
+  await page.goto("/sources");
+
+  await page
+    .getByRole("searchbox", { name: /search sources/i })
+    .fill("changed claim");
+  await page
+    .getByRole("textbox", { name: /launch or workstream filter/i })
+    .fill("cardiomax");
+
+  const result = page.getByRole("article", {
+    name: /cardiomax field training deck/i,
+  });
+
+  await expect(result).toBeVisible();
+  await expect(result).toContainText("Changed claim");
+  await expect(result).toContainText("Module 2 speaker notes");
+  await expect(result).toContainText("CARDIOMAX Approved Clinical Claim Set");
+
+  await result
+    .getByRole("button", {
+      name: /show details for cardiomax field training deck/i,
+    })
+    .click();
+  await expect(result.getByText(/approved replacement source:/i).first())
+    .toBeVisible();
+});
+
+test("explains no impacted training asset matches without approved-source copy", async ({
+  page,
+}) => {
+  await page.goto("/sources");
+
+  await page
+    .getByRole("searchbox", { name: /search sources/i })
+    .fill("changed pricing phrase");
+
+  await expect(page.getByText(/No impacted training assets found/i))
+    .toBeVisible();
+  await expect(page.getByText(/not yet ingested/i)).toBeVisible();
+  await expect(page.getByText(/Missing approved source/i)).toHaveCount(0);
+});
+
 test("hides source registration and redacts restricted details for non-admin users", async ({
   page,
 }) => {
@@ -125,13 +176,13 @@ test("hides source registration and redacts restricted details for non-admin use
   await expect(
     page.getByText("Restricted source details are hidden.").first(),
   ).toBeVisible();
-  await expect(page.getByText("Source system: Restricted")).toBeVisible();
+  await expect(page.getByText("Source system: Restricted").first()).toBeVisible();
 
   await page.getByRole("searchbox", { name: /search sources/i })
     .fill("commercial");
   await expect(
     page.getByRole("status", { name: /source result count/i }),
-  ).toContainText("0 of 14 source records match current filters");
+  ).toContainText("0 of 20 source records match current filters");
   await expect(
     page.getByText("Restricted commercial launch plan"),
   ).toHaveCount(0);

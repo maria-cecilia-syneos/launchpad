@@ -64,7 +64,8 @@ describe("SourceLedgerPanel", () => {
       .toBeVisible();
     expect(screen.getByText(/approval: stale/i)).toBeVisible();
     expect(screen.getAllByText(/ingestion: stale/i).length).toBeGreaterThan(0);
-    expect(screen.getByText(/access: restricted/i)).toBeVisible();
+    expect(screen.getAllByText(/access: restricted/i).length)
+      .toBeGreaterThan(0);
   });
 
   it("registers an admin source with validation feedback and an audit event", async () => {
@@ -362,9 +363,9 @@ describe("SourceLedgerPanel", () => {
       screen.getAllByText(/restricted source details are hidden/i).length,
     ).toBeGreaterThan(0);
 
-    const restrictedResult = screen.getByRole("article", {
+    const restrictedResult = screen.getAllByRole("article", {
       name: /restricted source/i,
-    });
+    })[0];
     expect(within(restrictedResult).getByText(/source system: restricted/i))
       .toBeVisible();
     expect(restrictedResult).not.toHaveTextContent(/commercial strategy/i);
@@ -401,7 +402,7 @@ describe("SourceLedgerPanel", () => {
     );
 
     expect(screen.getByRole("status", { name: /source result count/i }))
-      .toHaveTextContent(/1 of 14 source records match current filters/i);
+      .toHaveTextContent(/1 of 20 source records match current filters/i);
     expect(screen.getByText(/search: salesforce/i)).toBeVisible();
     expect(screen.getByRole("article", {
       name: /cardiomax salesforce launch context/i,
@@ -433,7 +434,7 @@ describe("SourceLedgerPanel", () => {
     await user.click(screen.getByRole("button", { name: /clear filters/i }));
 
     expect(screen.getByRole("status", { name: /source result count/i }))
-      .toHaveTextContent(/14 source records available/i);
+      .toHaveTextContent(/20 source records available/i);
     expect(screen.getByRole("article", {
       name: /cardiomax deployment handoff/i,
     })).toBeVisible();
@@ -517,6 +518,97 @@ describe("SourceLedgerPanel", () => {
       .toBeVisible();
     expect(screen.getByText(/missing approved source/i)).toBeVisible();
     expect(screen.getByText(/attach or approve a current source/i)).toBeVisible();
+  });
+
+  it("searches impacted training assets and shows replacement guidance", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <SourceLedgerPanel
+        initialSources={createPrototypeSourceRecords()}
+        session={adminSession}
+      />,
+    );
+
+    await user.type(
+      screen.getByRole("searchbox", { name: /search sources/i }),
+      "changed claim",
+    );
+    await user.type(
+      screen.getByRole("textbox", { name: /launch or workstream filter/i }),
+      "cardiomax",
+    );
+
+    const result = screen.getByRole("article", {
+      name: /cardiomax field training deck/i,
+    });
+
+    expect(result).toHaveTextContent(/changed claim/i);
+    expect(result).toHaveTextContent(/module 2 speaker notes/i);
+    expect(result).toHaveTextContent(
+      /cardiomax approved clinical claim set/i,
+    );
+    expect(result).toHaveTextContent(/matched changed content/i);
+
+    await user.click(
+      within(result).getByRole("button", {
+        name: /show details for cardiomax field training deck/i,
+      }),
+    );
+
+    expect(
+      within(result).getAllByText(/impacted content location:/i).length,
+    ).toBeGreaterThan(0);
+    expect(
+      within(result).getAllByText(/approved replacement source:/i).length,
+    ).toBeGreaterThan(0);
+    expect(result).toHaveTextContent(
+      /draft or unapproved alternative: cardiomax draft claim language \(not approved for training use\), cardiomax superseded positioning claims \(not approved for training use\)/i,
+    );
+  });
+
+  it("searches changed phrase impact metadata with a positive fixture", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <SourceLedgerPanel
+        initialSources={createPrototypeSourceRecords()}
+        session={adminSession}
+      />,
+    );
+
+    await user.type(
+      screen.getByRole("searchbox", { name: /search sources/i }),
+      "changed phrase",
+    );
+
+    const result = screen.getByRole("article", {
+      name: /cardiomax coaching checklist/i,
+    });
+
+    expect(result).toHaveTextContent(/changed phrase/i);
+    expect(result).toHaveTextContent(/facilitator coaching checklist prompt/i);
+  });
+
+  it("explains no-match impact searches separately from approved-source gaps", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <SourceLedgerPanel
+        initialSources={createPrototypeSourceRecords()}
+        session={adminSession}
+      />,
+    );
+
+    await user.type(
+      screen.getByRole("searchbox", { name: /search sources/i }),
+      "changed pricing phrase",
+    );
+
+    expect(screen.getByText(/no impacted training assets found/i)).toBeVisible();
+    expect(screen.getByText(/not yet ingested/i)).toBeVisible();
+    expect(screen.queryByText(/missing approved source/i))
+      .not.toBeInTheDocument();
   });
 
   it("does not report a missing approved-source gap for unrelated empty text searches", async () => {
@@ -607,7 +699,7 @@ describe("SourceLedgerPanel", () => {
     );
 
     expect(screen.getByRole("status", { name: /source result count/i }))
-      .toHaveTextContent(/0 of 14 source records match current filters/i);
+      .toHaveTextContent(/0 of 20 source records match current filters/i);
     expect(screen.getByText(/no sources match current filters/i)).toBeVisible();
     expect(screen.queryByText(/restricted commercial launch plan/i))
       .not.toBeInTheDocument();
@@ -618,9 +710,9 @@ describe("SourceLedgerPanel", () => {
       screen.getByRole("combobox", { name: /access filter/i }),
       "restricted",
     );
-    const restrictedResult = screen.getByRole("article", {
+    const restrictedResult = screen.getAllByRole("article", {
       name: /restricted source/i,
-    });
+    })[0];
     await user.click(
       within(restrictedResult).getByRole("button", {
         name: /show details for restricted source/i,

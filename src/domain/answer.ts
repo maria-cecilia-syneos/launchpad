@@ -1,12 +1,21 @@
 import {
+  approvalStateLabels,
   createPrototypeSourceRecords,
+  defaultSourceLedgerFilters,
+  filterSourceLedgerResults,
+  filterVisibleSourceRecords,
+  freshnessStateLabels,
+  hasTrainingImpactSearchIntent,
   isSourceApprovedForTrainingUse,
+  isRestrictedSource,
   sourceSystemLabels,
+  sourceTrainingImpactMatchesQuery,
   sourceTypeLabels,
   type SourceApprovalState,
   type SourceLedgerRecord,
   type SourceLedgerSystem,
 } from "./source-ledger";
+import type { WorkspaceRole } from "./workspace";
 
 export type SourceBackedAnswerState =
   | "answered"
@@ -481,6 +490,300 @@ export function buildTrainingSummaryDraftAnswer(
   };
 }
 
+export function isTrainingImpactQuestion(
+  question: string,
+  previousQuestion?: string | null,
+) {
+  if (previousQuestion && isContextualFollowUp(question)) {
+    return isTrainingImpactQuestion(previousQuestion);
+  }
+
+  return hasTrainingImpactSearchIntent(question);
+}
+
+export function buildTrainingImpactAnswer(
+  question: string,
+  launchName: string,
+  previousQuestion?: string | null,
+  role: WorkspaceRole = "project-manager",
+): SourceBackedAnswer {
+  const effectiveQuestion =
+    previousQuestion && isContextualFollowUp(question) ? previousQuestion : question;
+  const records = createPrototypeSourceRecords();
+  const queryVariantHash = createStableHash(effectiveQuestion);
+  const rawMatches = records.filter((source) =>
+    sourceTrainingImpactMatchesQuery(source, effectiveQuestion),
+  );
+  const restrictedRawMatches = rawMatches.filter(isRestrictedSource);
+  const visibleSources = filterVisibleSourceRecords(records, role);
+  const visibleImpactResults = filterSourceLedgerResults(
+    visibleSources,
+    {
+      ...defaultSourceLedgerFilters,
+      launchOrWorkstream: launchName,
+      query: effectiveQuestion,
+    },
+    {
+      isAdmin: role === "admin",
+    },
+  ).filter((source) => source.trainingImpact);
+
+  if (
+    rawMatches.length > 0 &&
+    visibleImpactResults.length === 0 &&
+    restrictedRawMatches.length === rawMatches.length
+  ) {
+    return createRestrictedTrainingImpactAnswer(launchName, queryVariantHash);
+  }
+
+  if (visibleImpactResults.length === 0) {
+    return createMissingTrainingImpactAnswer(launchName, queryVariantHash);
+  }
+
+  const recordsById = new Map(records.map((source) => [source.sourceId, source]));
+  const citedSources = getTrainingImpactCitationSources(
+    visibleImpactResults,
+    recordsById,
+  );
+  const citations = citedSources.map((source, index) => ({
+    ...createCitationFromSourceRecord(source),
+    marker: String(index + 1),
+  }));
+  const retrievedFacts = getTrainingImpactRetrievedFacts(
+    visibleImpactResults,
+  );
+  const unreliableResults = visibleImpactResults.filter(
+    (source) => !isReliableTrainingImpactResult(source),
+  );
+  const state: SourceBackedAnswerState = unreliableResults.length === 0
+    ? "answered"
+    : unreliableResults.every(
+          (source) =>
+            (source.freshnessState === "stale" ||
+              source.ingestionStatus === "stale") &&
+            source.ingestionStatus !== "incomplete" &&
+            source.approvalState !== "draft",
+        )
+      ? "source_stale"
+      : "missing_information";
+  const sourceGap =
+    unreliableResults.length === 0
+      ? undefined
+      : "Source gap: impacted assets were found, but at least one matching source is stale, incomplete, inaccessible, or not approved for use.";
+  const primaryCitation = citations[0];
+  const hasApprovedReplacement = visibleImpactResults.some(
+    (source) => source.trainingImpact?.approvedReplacement,
+  );
+
+  return {
+    id: `${launchName}-training-impact-${createStableHash(
+      [
+        queryVariantHash,
+        ...visibleImpactResults.map((source) => source.sourceKey).sort(),
+      ].join("|"),
+    )}`,
+    state,
+    title: "Impacted training assets",
+    summary:
+      `For ${launchName}, LaunchPad found training assets with matching changed content. ` +
+      (hasApprovedReplacement
+        ? "Affected assets and approved replacement sources are cited separately."
+        : "Affected assets are cited; no approved replacement source is available for every match."),
+    confidence: state === "answered" ? "high" : "medium",
+    freshnessLabel: getTrainingImpactFreshnessLabel(visibleImpactResults),
+    citations,
+    retrievedFacts,
+    nextActions: [
+      {
+        id: "open-impacted-training-asset",
+        label: primaryCitation
+          ? `Open ${primaryCitation.title}.`
+          : "Open Source Ledger.",
+        href: primaryCitation?.href ?? "/sources",
+      },
+      {
+        id: "review-training-impact-ledger",
+        label: "Review impacted assets in Source Ledger.",
+        href: "/sources",
+      },
+    ],
+    sourceGap,
+  };
+}
+
+function createMissingTrainingImpactAnswer(
+  launchName: string,
+  queryVariantHash: string,
+): SourceBackedAnswer {
+  return {
+    id: `${launchName}-training-impact-no-match-${queryVariantHash}`,
+    state: "no_reliable_source",
+    title: "No impacted training assets found",
+    summary:
+      "LaunchPad did not find matching ingested training assets for that changed-content request.",
+    confidence: "none",
+    freshnessLabel: "Freshness: no matching impacted assets found",
+    citations: [],
+    retrievedFacts: [],
+    sourceGap:
+      "Source gap: no matching ingested training assets were found. Results may be incomplete if sources are missing, stale, restricted, inaccessible, or not yet ingested.",
+    nextActions: [
+      {
+        id: "check-training-impact-ledger",
+        label: "Check Source Ledger for training asset ingestion gaps.",
+        href: "/sources",
+      },
+      {
+        id: "ask-learning-solutions-to-ingest-assets",
+        label: "Ask Learning Solutions to attach current training assets.",
+        href: "/sources",
+      },
+    ],
+  };
+}
+
+function createRestrictedTrainingImpactAnswer(
+  launchName: string,
+  queryVariantHash: string,
+): SourceBackedAnswer {
+  return {
+    id: `${launchName}-training-impact-access-restricted-${queryVariantHash}`,
+    state: "access_restricted",
+    title: "Access restricted",
+    summary:
+      "A matching impacted training asset exists, but your current role cannot view its details.",
+    confidence: "low",
+    freshnessLabel: "Freshness: hidden because access is restricted",
+    citations: [
+      {
+        accessState: "restricted",
+        freshnessLabel: "Freshness: restricted",
+        id: "restricted-training-impact",
+        marker: "1",
+        sourceType: "Restricted training asset",
+        system: "Asset",
+        title: "Restricted training asset",
+      },
+    ],
+    retrievedFacts: [],
+    sourceGap:
+      "Source gap: request access or ask an authorized owner to confirm affected training assets.",
+    nextActions: [
+      {
+        id: "request-training-impact-access",
+        label: "Request access to the restricted training asset.",
+        href: "/sources",
+      },
+      {
+        id: "ask-authorized-owner-training-impact",
+        label: "Ask an authorized owner for a non-restricted summary.",
+        href: "/sources",
+      },
+    ],
+  };
+}
+
+function isReliableTrainingImpactResult(
+  source: ReturnType<typeof filterSourceLedgerResults>[number],
+) {
+  return (
+    source.accessState === "authorized" &&
+    source.approvalState === "approved" &&
+    source.ingestionStatus === "complete" &&
+    source.freshnessState !== "stale" &&
+    source.sourceLinkHealth === "healthy"
+  );
+}
+
+function getTrainingImpactCitationSources(
+  visibleImpactResults: ReturnType<typeof filterSourceLedgerResults>,
+  recordsById: Map<string, SourceLedgerRecord>,
+) {
+  const sources: SourceLedgerRecord[] = [];
+
+  for (const result of visibleImpactResults) {
+    const impactedSource = result.displaySourceId
+      ? recordsById.get(result.displaySourceId)
+      : undefined;
+    const replacementSourceId = result.trainingImpact?.approvedReplacement?.sourceId;
+    const replacementSource = replacementSourceId
+      ? recordsById.get(replacementSourceId)
+      : undefined;
+
+    for (const source of [impactedSource, replacementSource]) {
+      if (
+        source &&
+        !sources.some((candidate) => candidate.sourceId === source.sourceId)
+      ) {
+        sources.push(source);
+      }
+    }
+  }
+
+  return sources;
+}
+
+function getTrainingImpactRetrievedFacts(
+  visibleImpactResults: ReturnType<typeof filterSourceLedgerResults>,
+): RetrievedFact[] {
+  const facts: RetrievedFact[] = [];
+
+  for (const result of visibleImpactResults) {
+    const impact = result.trainingImpact;
+
+    if (!impact || !result.displaySourceId) {
+      continue;
+    }
+
+    facts.push({
+      citationId: result.displaySourceId,
+      id: `${result.sourceKey}-impact-location`,
+      text:
+        `${result.displayName} contains ${impact.changedContentTypeLabel.toLowerCase()} ` +
+        `in ${impact.displayMatchLocation}. Approval: ${approvalStateLabels[result.approvalState]}; freshness: ${freshnessStateLabels[result.freshnessState]}.`,
+    });
+
+    if (impact.approvedReplacement) {
+      facts.push({
+        citationId: impact.approvedReplacement.sourceId,
+        id: `${result.sourceKey}-approved-replacement`,
+        text:
+          `${impact.approvedReplacement.title} is the approved replacement source for ${impact.displayChangedContent}.`,
+      });
+    }
+
+    if (
+      result.approvalState !== "approved" ||
+      result.ingestionStatus !== "complete" ||
+      result.freshnessState === "stale"
+    ) {
+      facts.push({
+        id: `${result.sourceKey}-impact-gap`,
+        text:
+          `${result.displayName} needs verification before reuse because its approval, freshness, or ingestion state is not fully reliable.`,
+      });
+    }
+  }
+
+  return facts.filter((fact, index, allFacts) =>
+    allFacts.findIndex((candidate) => candidate.id === fact.id) === index,
+  );
+}
+
+function getTrainingImpactFreshnessLabel(
+  visibleImpactResults: ReturnType<typeof filterSourceLedgerResults>,
+) {
+  const latestRefresh = visibleImpactResults
+    .map((source) => source.lastRefreshedAt)
+    .filter((value): value is string => Boolean(value))
+    .sort()
+    .at(-1);
+
+  return latestRefresh
+    ? `Freshness: latest impacted asset refreshed ${latestRefresh}`
+    : "Freshness: impacted asset freshness requires source review";
+}
+
 function createMissingApprovedTrainingContentAnswer(
   launchName: string,
   requestedContent?: string,
@@ -844,7 +1147,11 @@ function escapeRegExp(value: string) {
 
 function getApprovedTrainingContentEntries(): ApprovedTrainingContentEntry[] {
   return createPrototypeSourceRecords()
-    .filter(isSourceApprovedForTrainingUse)
+    .filter(
+      (source) =>
+        isSourceApprovedForTrainingUse(source) &&
+        Boolean(approvedTrainingContentCatalog[source.sourceId]),
+    )
     .map((source) => {
       const catalogEntry = approvedTrainingContentCatalog[source.sourceId];
 
