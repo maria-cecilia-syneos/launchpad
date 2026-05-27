@@ -13,6 +13,7 @@ import type {
   AnswerFeedbackCategory,
   AnswerFeedbackRating,
   AuditSourceReference,
+  DraftUsageAction,
 } from "@/domain/audit";
 
 import { SourceProvenanceChip } from "./SourceProvenanceChip";
@@ -24,8 +25,18 @@ type AnswerFeedbackSubmission = {
   categories: AnswerFeedbackCategory[];
 };
 
+type DraftUsageSubmission = {
+  answerId: string;
+  answerState: SourceBackedAnswer["state"];
+  citedSources: AuditSourceReference[];
+  draftId: string;
+  omittedTopics: string[];
+  usageAction: DraftUsageAction;
+};
+
 type SourceBackedAnswerCardProps = {
   answer: SourceBackedAnswer;
+  onDraftUsageSubmit?: (usage: DraftUsageSubmission) => void;
   onFeedbackSubmit?: (feedback: AnswerFeedbackSubmission) => void;
 };
 
@@ -180,6 +191,7 @@ function NextActionLink({ action }: { action: AnswerNextAction }) {
 
 export function SourceBackedAnswerCard({
   answer,
+  onDraftUsageSubmit,
   onFeedbackSubmit,
 }: SourceBackedAnswerCardProps) {
   const generatedId = useId().replace(/[^A-Za-z0-9_-]/g, "");
@@ -189,8 +201,11 @@ export function SourceBackedAnswerCard({
   const feedbackTitleId = `${generatedId}-feedback-title`;
   const [rating, setRating] = useState<AnswerFeedbackRating | "">("");
   const [categories, setCategories] = useState<AnswerFeedbackCategory[]>([]);
+  const [draftUsageMessage, setDraftUsageMessage] = useState("");
   const [feedbackMessage, setFeedbackMessage] = useState("");
   const hasFeedbackRecorder = Boolean(onFeedbackSubmit);
+  const reviewActionLabel = answer.generatedDraft?.reviewActionLabel;
+  const hasDraftUsageRecorder = Boolean(onDraftUsageSubmit && reviewActionLabel);
   const hasRestrictedSource =
     answer.state === "access_restricted" ||
     answer.citations.some((citation) => citation.accessState === "restricted");
@@ -222,6 +237,24 @@ export function SourceBackedAnswerCard({
     });
     setFeedbackMessage(
       "Feedback received. It has been preserved for answer quality review.",
+    );
+  }
+
+  function handleDraftUsageSubmit() {
+    if (!answer.generatedDraft || !onDraftUsageSubmit) {
+      return;
+    }
+
+    onDraftUsageSubmit({
+      answerId: answer.id,
+      answerState: answer.state,
+      citedSources: getSourceReferences(answer),
+      draftId: answer.generatedDraft.id,
+      omittedTopics: answer.generatedDraft.omittedTopics ?? [],
+      usageAction: "saved_for_review",
+    });
+    setDraftUsageMessage(
+      "Draft saved for review. Source lineage preserved for reviewer traceability.",
     );
   }
 
@@ -308,6 +341,27 @@ export function SourceBackedAnswerCard({
           <p className="text-muted-foreground">
             {answer.generatedDraft.reviewLabel}
           </p>
+          {hasDraftUsageRecorder ? (
+            <div className="mt-3 flex flex-col items-start gap-2">
+              <button
+                className="inline-flex min-h-10 items-center gap-2 rounded-md bg-syneos-orange px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-syneos-orange"
+                disabled={Boolean(draftUsageMessage)}
+                onClick={handleDraftUsageSubmit}
+                type="button"
+              >
+                <Sparkles aria-hidden="true" className="h-4 w-4" />
+                {reviewActionLabel}
+              </button>
+              {draftUsageMessage ? (
+                <p
+                  className="rounded-md border border-border bg-card px-3 py-2 text-sm text-muted-foreground"
+                  role="status"
+                >
+                  {draftUsageMessage}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
         </section>
       ) : null}
 

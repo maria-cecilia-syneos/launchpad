@@ -44,6 +44,8 @@ export type RetrievedFact = {
 
 export type GeneratedDraft = {
   id: string;
+  omittedTopics?: string[];
+  reviewActionLabel?: string;
   text: string;
   reviewLabel: string;
 };
@@ -106,11 +108,34 @@ type ApprovedTrainingContentEntry = {
   keywords: string[];
 };
 
+type TrainingSummaryDraftEntry = ApprovedTrainingContentEntry & {
+  draftText: string;
+  topicAliases: string[];
+};
+
 const approvedTrainingContentCatalog: Record<
   string,
-  { factText: string; keywords: string[] }
+  {
+    draftText: string;
+    draftTopics: string[];
+    factText: string;
+    keywords: string[];
+  }
 > = {
   "src-cardiomax-approved-assets": {
+    draftText:
+      "Use CARDIOMAX Approved Asset Library as the reusable training source set for Learning Solutions materials.",
+    draftTopics: [
+      "asset",
+      "assets",
+      "asset library",
+      "approved asset",
+      "approved assets",
+      "training asset",
+      "training assets",
+      "training source",
+      "training sources",
+    ],
     factText:
       "CARDIOMAX Approved Asset Library is approved for training use and owned by Learning Solutions.",
     keywords: [
@@ -124,6 +149,15 @@ const approvedTrainingContentCatalog: Record<
     ],
   },
   "src-cardiomax-approved-message-house": {
+    draftText:
+      "Position CARDIOMAX with the approved core narrative from CARDIOMAX Approved Message House.",
+    draftTopics: [
+      "core narrative",
+      "message house",
+      "messaging",
+      "approved message",
+      "approved messaging",
+    ],
     factText:
       "CARDIOMAX Approved Message House contains approved messaging for training-safe core narrative.",
     keywords: [
@@ -135,6 +169,15 @@ const approvedTrainingContentCatalog: Record<
     ],
   },
   "src-cardiomax-approved-clinical-claims": {
+    draftText:
+      "Use CARDIOMAX Approved Clinical Claim Set for clinical claim language in training materials.",
+    draftTopics: [
+      "claim",
+      "claims",
+      "claim language",
+      "clinical claim",
+      "clinical claims",
+    ],
     factText:
       "CARDIOMAX Approved Clinical Claim Set contains approved claim language for training materials.",
     keywords: [
@@ -146,6 +189,15 @@ const approvedTrainingContentCatalog: Record<
     ],
   },
   "src-cardiomax-value-proposition-brief": {
+    draftText:
+      "Anchor value messaging in CARDIOMAX Value Proposition Brief for the training build.",
+    draftTopics: [
+      "value prop",
+      "value proposition",
+      "value propositions",
+      "positioning",
+      "proposition",
+    ],
     factText:
       "CARDIOMAX Value Proposition Brief contains the current approved value proposition for the training build.",
     keywords: [
@@ -197,6 +249,38 @@ export function isApprovedTrainingContentQuestion(
       normalizedQuestion,
     ) ||
     (hasContentTerm && hasApprovedTrainingIntent)
+  );
+}
+
+export function isTrainingSummaryDraftQuestion(
+  question: string,
+  previousQuestion?: string | null,
+) {
+  if (previousQuestion && isContextualFollowUp(question)) {
+    return isTrainingSummaryDraftQuestion(previousQuestion);
+  }
+
+  const normalizedQuestion = normalizeApprovedContentQuestion(question);
+  const hasDraftVerb =
+    /\b(draft|create|generate|prepare|write)\b/i.test(normalizedQuestion);
+  const hasTrainingSummaryObject =
+    /\b(training summary|training summaries|learning solutions summary|training material summary|training materials summary)\b/i.test(
+      normalizedQuestion,
+    );
+  const hasApprovedSourceScope =
+    /\b(approved source|approved sources|approved content|source-backed content|sourced content|training content|learning solutions)\b/i.test(
+      normalizedQuestion,
+    );
+  const hasSummarizeTrainingIntent =
+    /\bsummarize\b/i.test(normalizedQuestion) &&
+    /\b(approved content|approved source|approved sources|training content)\b/i.test(
+      normalizedQuestion,
+    ) &&
+    /\btraining\b/i.test(normalizedQuestion);
+
+  return (
+    (hasDraftVerb && hasTrainingSummaryObject) ||
+    (hasApprovedSourceScope && hasSummarizeTrainingIntent)
   );
 }
 
@@ -322,9 +406,87 @@ export function buildApprovedTrainingContentAnswer(
   };
 }
 
+export function buildTrainingSummaryDraftAnswer(
+  question: string,
+  launchName: string,
+  previousQuestion?: string | null,
+): SourceBackedAnswer {
+  const effectiveQuestion =
+    previousQuestion && isContextualFollowUp(question) ? previousQuestion : question;
+  const normalizedQuestion = normalizeApprovedContentQuestion(effectiveQuestion);
+
+  const { selectedEntries, unsupportedTopics } =
+    getTrainingSummaryDraftEntriesForQuestion(normalizedQuestion);
+
+  if (selectedEntries.length === 0) {
+    return createMissingApprovedTrainingContentAnswer(
+      launchName,
+      unsupportedTopics[0] ?? getSpecificTrainingSummaryRequest(normalizedQuestion),
+    );
+  }
+
+  const draftSignature = createTrainingSummaryDraftSignature(
+    selectedEntries,
+    unsupportedTopics,
+  );
+  const citations = selectedEntries.map((entry, index) => ({
+    ...entry.citation,
+    marker: String(index + 1),
+  }));
+  const retrievedFacts = selectedEntries.map((entry) => entry.fact);
+  const draftBullets = selectedEntries.map((entry, index) => {
+    const marker = citations[index].marker;
+
+    return `- ${entry.draftText} [${marker}]`;
+  });
+  const sourceGap =
+    unsupportedTopics.length > 0
+      ? `Source gap: missing approved source for ${joinHumanList(
+          unsupportedTopics,
+        )}. Unsupported sections were omitted from the draft.`
+      : undefined;
+
+  return {
+    id: `${launchName}-training-summary-draft-${draftSignature}`,
+    state: sourceGap ? "missing_information" : "answered",
+    title: "Training summary draft",
+    summary:
+      `For ${launchName}, LaunchPad drafted training summary language from approved, current, authorized sources only.` +
+      (sourceGap ? " Unsupported sections are called out as source gaps." : ""),
+    confidence: sourceGap ? "medium" : "high",
+    freshnessLabel: "Freshness: refreshed 2026-05-26 from approved sources",
+    citations,
+    retrievedFacts,
+    generatedDraft: {
+      id: `${slugifyForId(launchName)}-training-summary-draft-${draftSignature}`,
+      omittedTopics: unsupportedTopics,
+      reviewActionLabel: "Save draft for review",
+      text: `Draft training summary:\n${draftBullets.join("\n")}`,
+      reviewLabel:
+        "Draft language requires human review before approval or publishing.",
+    },
+    nextActions: [
+      {
+        id: "review-training-summary-draft",
+        label: "Review the draft with Learning Solutions.",
+        href: "#agent-question",
+      },
+      {
+        id: "open-approved-training-sources",
+        label: "Open approved training sources.",
+        href: "/sources",
+      },
+    ],
+    sourceGap,
+  };
+}
+
 function createMissingApprovedTrainingContentAnswer(
   launchName: string,
+  requestedContent?: string,
 ): SourceBackedAnswer {
+  const requestedContentLabel = requestedContent?.trim();
+
   return {
     id: `${launchName}-missing-approved-training-content`,
     state: "no_reliable_source",
@@ -335,8 +497,9 @@ function createMissingApprovedTrainingContentAnswer(
     freshnessLabel: "Freshness: no approved source available",
     citations: [],
     retrievedFacts: [],
-    sourceGap:
-      "Source gap: missing approved source for the requested training content.",
+    sourceGap: requestedContentLabel
+      ? `Source gap: missing approved source for ${requestedContentLabel}.`
+      : "Source gap: missing approved source for the requested training content.",
     nextActions: [
       {
         id: "ask-learning-solutions-owner",
@@ -350,6 +513,215 @@ function createMissingApprovedTrainingContentAnswer(
       },
     ],
   };
+}
+
+function getTrainingSummaryDraftEntriesForQuestion(
+  normalizedQuestion: string,
+): {
+  selectedEntries: TrainingSummaryDraftEntry[];
+  unsupportedTopics: string[];
+} {
+  const approvedTrainingContentEntries = getApprovedTrainingContentEntries().map(
+    (entry): TrainingSummaryDraftEntry => ({
+      ...entry,
+      draftText:
+        approvedTrainingContentCatalog[entry.citation.id]?.draftText ??
+        `${entry.citation.title} supports the training summary.`,
+      topicAliases:
+        approvedTrainingContentCatalog[entry.citation.id]?.draftTopics ??
+        entry.keywords,
+    }),
+  );
+  const requestedTopics = getRequestedTrainingSummaryTopics(normalizedQuestion);
+
+  if (requestedTopics.length === 0) {
+    return {
+      selectedEntries: approvedTrainingContentEntries,
+      unsupportedTopics: [],
+    };
+  }
+
+  const selectedEntries: TrainingSummaryDraftEntry[] = [];
+  const unsupportedTopics: string[] = [];
+
+  for (const topic of requestedTopics) {
+    const { matchedEntries, unsupportedTopic } =
+      getTrainingSummaryTopicMatch(topic, approvedTrainingContentEntries);
+
+    if (matchedEntries.length === 0) {
+      unsupportedTopics.push(unsupportedTopic ?? topic);
+      continue;
+    }
+
+    for (const matchedEntry of matchedEntries) {
+      if (
+        !selectedEntries.some(
+          (entry) => entry.citation.id === matchedEntry.citation.id,
+        )
+      ) {
+        selectedEntries.push(matchedEntry);
+      }
+    }
+
+    if (unsupportedTopic) {
+      unsupportedTopics.push(unsupportedTopic);
+    }
+  }
+
+  return {
+    selectedEntries,
+    unsupportedTopics: getUniqueValues(unsupportedTopics),
+  };
+}
+
+function getTrainingSummaryTopicMatch(
+  topic: string,
+  entries: TrainingSummaryDraftEntry[],
+) {
+  if (isIneligibleTrainingSummaryTopic(topic)) {
+    return { matchedEntries: [], unsupportedTopic: topic };
+  }
+
+  const matches = entries
+    .map((entry) => ({
+      entry,
+      matchedAliases: entry.topicAliases
+        .map(normalizeTrainingSummaryTopic)
+        .filter((alias) => topicMatchesAlias(topic, alias)),
+    }))
+    .filter(({ matchedAliases }) => matchedAliases.length > 0);
+  const unsupportedRemainder = getUnsupportedTopicRemainder(
+    topic,
+    matches.flatMap(({ matchedAliases }) => matchedAliases),
+  );
+
+  if (unsupportedRemainder) {
+    return {
+      matchedEntries: [],
+      unsupportedTopic: unsupportedRemainder,
+    };
+  }
+
+  return {
+    matchedEntries: matches.map(({ entry }) => entry),
+    unsupportedTopic: undefined,
+  };
+}
+
+function isIneligibleTrainingSummaryTopic(topic: string) {
+  if (/\bnot approved\b/i.test(topic)) {
+    return true;
+  }
+
+  if (
+    /\b(?:exclude|excluding|without|avoid|omitting)\s+(?:stale|superseded|inactive|unapproved|draft|restricted)\b/i.test(
+      topic,
+    )
+  ) {
+    return false;
+  }
+
+  return /\b(stale|superseded|inactive|unapproved|draft|restricted)\b/i.test(
+    topic,
+  );
+}
+
+function getRequestedTrainingSummaryTopics(normalizedQuestion: string) {
+  const specificRequest = getSpecificTrainingSummaryRequest(normalizedQuestion);
+
+  if (!specificRequest) {
+    return [];
+  }
+
+  return specificRequest
+    .split(/\s+(?:and|plus|with|including|include|as well as)\s+|[,;]/)
+    .map(normalizeTrainingSummaryTopic)
+    .filter((topic) => topic && !isGenericTrainingSummaryTopic(topic));
+}
+
+function getSpecificTrainingSummaryRequest(normalizedQuestion: string) {
+  const preposedTopicMatch = [
+    /\b(?:draft|create|generate|prepare|write)\s+(?:a|an)\s+(.+?)\s+training summary\b/,
+    /\b(?:draft|create|generate|prepare|write)\s+(.+?)\s+training summary\b/,
+  ]
+    .map((pattern) => normalizedQuestion.match(pattern))
+    .find((result): result is RegExpMatchArray => Boolean(result));
+
+  if (preposedTopicMatch?.[1]) {
+    const preposedTopic = preposedTopicMatch[1]
+      .replace(/[?.!]+$/g, "")
+      .trim();
+
+    if (
+      !/^(a|an|the)$/.test(preposedTopic) &&
+      !isGenericTrainingSummaryTopic(normalizeTrainingSummaryTopic(preposedTopic))
+    ) {
+      return preposedTopic;
+    }
+  }
+
+  const match = [
+    /\bcovering\s+(.+)$/,
+    /\bwith\s+(.+)$/,
+    /\bincluding\s+(.+)$/,
+    /\binclude\s+(.+)$/,
+    /\bregarding\s+(.+)$/,
+    /\brelated to\s+(.+)$/,
+    /\babout\s+(.+)$/,
+    /\bon\s+(.+)$/,
+    /\bfrom\s+(.+)$/,
+    /\bfor\s+(.+)$/,
+  ]
+    .map((pattern) => normalizedQuestion.match(pattern))
+    .find((result): result is RegExpMatchArray => Boolean(result));
+
+  return match?.[1]?.replace(/[?.!]+$/g, "").trim() ?? "";
+}
+
+function normalizeTrainingSummaryTopic(value: string) {
+  return value
+    .replace(/\bnot\s+approved\b/g, "not_approved")
+    .replace(/\b(approved|current|source-backed|sourced)\b/g, " ")
+    .replace(/\bnot_approved\b/g, "not approved")
+    .replace(/\b(for|from|using)\s+(learning solutions|training)\b/g, " ")
+    .replace(/\b(for|from|using)\b/g, " ")
+    .replace(/\b(summary|summaries|material|materials|content|source|sources)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isGenericTrainingSummaryTopic(value: string) {
+  return /^(source|sources|content|training content|training|learning solutions|learning solutions summary|training summary|training summaries|training material|training materials|material|materials)$/.test(
+    value,
+  );
+}
+
+function topicMatchesAlias(topic: string, alias: string) {
+  if (!alias || isGenericTrainingSummaryTopic(alias)) {
+    return false;
+  }
+
+  return new RegExp(`\\b${escapeRegExp(alias)}\\b`, "i").test(topic);
+}
+
+function getUnsupportedTopicRemainder(topic: string, matchedAliases: string[]) {
+  if (matchedAliases.length === 0) {
+    return undefined;
+  }
+
+  const remainingTopic = matchedAliases
+    .sort((left, right) => right.length - left.length)
+    .reduce(
+      (current, alias) =>
+        current.replace(new RegExp(`\\b${escapeRegExp(alias)}\\b`, "gi"), " "),
+      topic,
+    );
+  const normalizedRemainder = normalizeTrainingSummaryTopic(remainingTopic);
+
+  return normalizedRemainder &&
+    !isGenericTrainingSummaryTopic(normalizedRemainder)
+    ? normalizedRemainder
+    : undefined;
 }
 
 function getApprovedTrainingContentEntriesForQuestion(question: string) {
@@ -417,6 +789,57 @@ function isGenericTrainingScope(value: string) {
 
 function normalizeApprovedContentQuestion(value: string) {
   return value.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function joinHumanList(values: string[]) {
+  if (values.length === 1) {
+    return values[0];
+  }
+
+  if (values.length === 2) {
+    return `${values[0]} and ${values[1]}`;
+  }
+
+  return `${values.slice(0, -1).join(", ")}, and ${values.at(-1)}`;
+}
+
+function getUniqueValues(values: string[]) {
+  return Array.from(new Set(values));
+}
+
+function slugifyForId(value: string) {
+  return (
+    value
+      .replace(/[^A-Za-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "")
+      .toLowerCase() || "draft"
+  );
+}
+
+function createTrainingSummaryDraftSignature(
+  selectedEntries: TrainingSummaryDraftEntry[],
+  unsupportedTopics: string[],
+) {
+  return createStableHash(
+    [
+      selectedEntries.map((entry) => entry.citation.id).join("|"),
+      unsupportedTopics.join("|"),
+    ].join("::"),
+  );
+}
+
+function createStableHash(seed: string) {
+  let hash = 5381;
+
+  for (let index = 0; index < seed.length; index += 1) {
+    hash = (hash * 33) ^ seed.charCodeAt(index);
+  }
+
+  return (hash >>> 0).toString(36);
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function getApprovedTrainingContentEntries(): ApprovedTrainingContentEntry[] {

@@ -55,6 +55,12 @@ export const suggestedLaunchQuestions: SuggestedLaunchQuestion[] = [
     label: "Find approved training content",
     question: "What approved content is available for training?",
   },
+  {
+    id: "draft-training-summary",
+    label: "Draft training summary",
+    question:
+      "Draft a training summary from approved sources for Learning Solutions.",
+  },
 ];
 
 export function needsClarification(question: string) {

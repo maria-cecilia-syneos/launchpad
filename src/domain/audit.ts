@@ -9,6 +9,7 @@ import type {
 export type AuditEventType =
   | "answer.created"
   | "answer.source_cited"
+  | "draft.usage_recorded"
   | "feedback.submitted";
 
 export type AnswerFeedbackCategory =
@@ -18,6 +19,12 @@ export type AnswerFeedbackCategory =
   | "missing_context";
 
 export type AnswerFeedbackRating = "helpful" | "not_helpful";
+
+export type DraftUsageAction =
+  | "saved_for_review"
+  | "copied"
+  | "exported"
+  | "marked_ready_for_review";
 
 export type AuditSourceReference = {
   sourceId: string;
@@ -29,11 +36,14 @@ export type AuditEventMetadata = {
   answerId?: string;
   answerState?: SourceBackedAnswerState;
   confidence?: AnswerConfidence;
+  draftId?: string;
+  usageAction?: DraftUsageAction;
   sourceId?: string;
   sourceTitle?: string;
   sourceAccessState?: SourceAccessState;
   citedSourceIds?: string[];
   citedSources?: AuditSourceReference[];
+  omittedTopics?: string[];
   categories?: AnswerFeedbackCategory[];
   rating?: AnswerFeedbackRating;
 };
@@ -78,6 +88,19 @@ type FeedbackInput = {
   rating: AnswerFeedbackRating;
   categories: AnswerFeedbackCategory[];
   submittedAt?: string;
+  correlationId?: string;
+};
+
+type DraftUsageInput = {
+  answerId: string;
+  answerState: SourceBackedAnswerState;
+  actorId: string;
+  citedSources: AuditSourceReference[];
+  draftId: string;
+  launchId: string;
+  omittedTopics?: string[];
+  usageAction: DraftUsageAction;
+  occurredAt?: string;
   correlationId?: string;
 };
 
@@ -182,6 +205,37 @@ export function buildPrototypeFeedbackRecord({
     launchId,
     rating,
     submittedAt,
+  };
+}
+
+export function buildDraftUsageAuditEvent({
+  actorId,
+  answerId,
+  answerState,
+  citedSources,
+  correlationId = createUniqueCorrelationId(`${answerId}-draft-usage`),
+  draftId,
+  launchId,
+  omittedTopics = [],
+  occurredAt = createTimestamp(),
+  usageAction,
+}: DraftUsageInput): AuditEventRecord {
+  return {
+    actorId,
+    correlationId,
+    eventId: createId("evt", `${correlationId}-draft-usage-${draftId}`),
+    eventType: "draft.usage_recorded",
+    launchId,
+    metadata: {
+      answerId,
+      answerState,
+      citedSourceIds: citedSources.map((source) => source.sourceId),
+      citedSources,
+      draftId,
+      omittedTopics,
+      usageAction,
+    },
+    occurredAt,
   };
 }
 

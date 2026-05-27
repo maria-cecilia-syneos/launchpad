@@ -86,6 +86,34 @@ test("answers approved-content training questions with citations", async ({
   ).toHaveCount(0);
 });
 
+test("drafts training summaries from approved sources with review guardrails", async ({
+  page,
+}) => {
+  await page.goto("/agent");
+
+  await page
+    .getByRole("textbox", { name: /ask launchpad/i })
+    .fill("Draft a training summary from approved sources for Learning Solutions.");
+  await page.getByRole("button", { name: /ask launchpad/i }).click();
+
+  await expect(
+    page.getByRole("heading", { name: /training summary draft/i }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("region", { name: /generated draft/i }),
+  ).toContainText(/requires human review before approval or publishing/i);
+  await expect(
+    page.getByRole("link", {
+      name: /^citation 1: cardiomax approved asset library from asset$/i,
+    }),
+  ).toHaveAttribute("href", "/sources#cardiomax-approved-assets");
+  await expect(page.getByText(/no training draft was generated/i)).toHaveCount(0);
+
+  await page.getByRole("button", { name: /save draft for review/i }).click();
+
+  await expect(page.getByText(/Draft saved for review/).first()).toBeVisible();
+});
+
 test("returns missing approved source for unavailable training content", async ({
   page,
 }) => {
@@ -102,6 +130,26 @@ test("returns missing approved source for unavailable training content", async (
   await expect(page.getByText(/State: No reliable source/i)).toBeVisible();
   await expect(page.getByText(/source gap: missing approved source/i))
     .toBeVisible();
+});
+
+test("does not draft unsupported training summary topics", async ({ page }) => {
+  await page.goto("/agent");
+
+  await page
+    .getByRole("textbox", { name: /ask launchpad/i })
+    .fill("Draft a training summary about renal dosing.");
+  await page.getByRole("button", { name: /ask launchpad/i }).click();
+
+  await expect(
+    page.getByRole("heading", { name: /missing approved source/i }),
+  ).toBeVisible();
+  await expect(page.getByText(/State: No reliable source/i)).toBeVisible();
+  await expect(
+    page.getByText(/Source gap: missing approved source for renal dosing/i),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("region", { name: /generated draft/i }),
+  ).toHaveCount(0);
 });
 
 test("submits answer feedback without disrupting the chat session", async ({

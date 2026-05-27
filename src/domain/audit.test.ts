@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { buildPrototypeAnswer } from "./answer";
+import {
+  buildPrototypeAnswer,
+  buildTrainingSummaryDraftAnswer,
+} from "./answer";
 import {
   type AuditSourceReference,
   buildAnswerAuditEvents,
+  buildDraftUsageAuditEvent,
   buildFeedbackSubmittedEvent,
   buildPrototypeFeedbackRecord,
 } from "./audit";
@@ -178,5 +182,49 @@ describe("audit domain helpers", () => {
         ),
       ).size,
     ).toBe(firstAnswerEvents.length + secondAnswerEvents.length);
+  });
+
+  it("records draft usage source lineage without raw draft or question content", () => {
+    const answer = buildTrainingSummaryDraftAnswer(
+      "Draft a training summary from approved sources for Learning Solutions.",
+      defaultWorkspaceSession.launch.name,
+    );
+    const citedSources = getSourceReferences(answer);
+    const event = buildDraftUsageAuditEvent({
+      actorId: defaultWorkspaceSession.user.name,
+      answerId: answer.id,
+      answerState: answer.state,
+      citedSources,
+      correlationId: "corr-draft-usage-1",
+      draftId: answer.generatedDraft!.id,
+      launchId: defaultWorkspaceSession.launch.id,
+      omittedTopics: answer.generatedDraft!.omittedTopics ?? [],
+      occurredAt: "2026-05-26T18:00:00.000Z",
+      usageAction: "saved_for_review",
+    });
+
+    expect(event).toMatchObject({
+      actorId: defaultWorkspaceSession.user.name,
+      correlationId: "corr-draft-usage-1",
+      eventType: "draft.usage_recorded",
+      launchId: defaultWorkspaceSession.launch.id,
+      metadata: {
+        answerId: answer.id,
+        answerState: answer.state,
+        citedSourceIds: [
+          "src-cardiomax-approved-assets",
+          "src-cardiomax-approved-message-house",
+          "src-cardiomax-approved-clinical-claims",
+          "src-cardiomax-value-proposition-brief",
+        ],
+        citedSources,
+        draftId: answer.generatedDraft!.id,
+        omittedTopics: [],
+        usageAction: "saved_for_review",
+      },
+      occurredAt: "2026-05-26T18:00:00.000Z",
+    });
+    expect(JSON.stringify(event)).not.toContain("Draft a training summary");
+    expect(JSON.stringify(event)).not.toContain(answer.generatedDraft!.text);
   });
 });

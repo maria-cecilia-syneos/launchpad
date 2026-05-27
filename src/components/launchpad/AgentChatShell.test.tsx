@@ -448,6 +448,75 @@ describe("AgentChatShell", () => {
     );
   });
 
+  it("routes training summary draft questions before approved-content discovery and records draft usage", async () => {
+    const user = userEvent.setup();
+    const onAuditEventsRecorded = vi.fn();
+
+    render(
+      <AgentChatShell
+        onAuditEventsRecorded={onAuditEventsRecorded}
+        session={defaultWorkspaceSession}
+      />,
+    );
+
+    await user.type(
+      screen.getByRole("textbox", { name: /ask launchpad/i }),
+      "Draft a training summary from approved sources for Learning Solutions.",
+    );
+    await user.click(screen.getByRole("button", { name: /ask launchpad/i }));
+
+    await screen.findByRole("heading", { name: /training summary draft/i });
+    expect(
+      screen.getByRole("region", { name: /generated draft/i }),
+    ).toHaveTextContent(/requires human review before approval or publishing/i);
+    expect(screen.queryByText(/no training draft was generated/i))
+      .not.toBeInTheDocument();
+    expect(onAuditEventsRecorded).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          eventType: "answer.created",
+          metadata: expect.objectContaining({
+            answerId: expect.stringMatching(
+              /^CARDIOMAX Launch-training-summary-draft-[a-z0-9]+$/,
+            ),
+            citedSourceIds: expect.arrayContaining([
+              "src-cardiomax-approved-assets",
+              "src-cardiomax-approved-message-house",
+            ]),
+          }),
+        }),
+      ]),
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: /save draft for review/i }),
+    );
+
+    expect(onAuditEventsRecorded).toHaveBeenLastCalledWith([
+      expect.objectContaining({
+        eventType: "draft.usage_recorded",
+        metadata: expect.objectContaining({
+          answerId: expect.stringMatching(
+            /^CARDIOMAX Launch-training-summary-draft-[a-z0-9]+$/,
+          ),
+          answerState: "answered",
+          citedSourceIds: expect.arrayContaining([
+            "src-cardiomax-approved-assets",
+            "src-cardiomax-approved-message-house",
+          ]),
+          draftId: expect.stringMatching(
+            /^cardiomax-launch-training-summary-draft-[a-z0-9]+$/,
+          ),
+          omittedTopics: [],
+          usageAction: "saved_for_review",
+        }),
+      }),
+    ]);
+    expect(screen.getAllByRole("status").at(-1)).toHaveTextContent(
+      /draft saved for review/i,
+    );
+  });
+
   it("answers direct approved-asset training questions", async () => {
     const user = userEvent.setup();
 

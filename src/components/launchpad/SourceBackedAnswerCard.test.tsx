@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { SourceBackedAnswerCard } from "./SourceBackedAnswerCard";
 import {
   buildPrototypeAnswer,
+  buildTrainingSummaryDraftAnswer,
   createRestrictedPrototypeAnswer,
   createStatePrototypeAnswer,
 } from "@/domain/answer";
@@ -254,6 +255,63 @@ describe("SourceBackedAnswerCard", () => {
     ).toBeVisible();
   });
 
+  it("records generated draft usage with source lineage", async () => {
+    const user = userEvent.setup();
+    const answer = buildTrainingSummaryDraftAnswer(
+      "Draft a training summary from approved sources for Learning Solutions.",
+      "CARDIOMAX Launch",
+    );
+    const onDraftUsageSubmit = vi.fn();
+
+    render(
+      <SourceBackedAnswerCard
+        answer={answer}
+        onDraftUsageSubmit={onDraftUsageSubmit}
+      />,
+    );
+
+    expect(
+      screen.getByRole("region", { name: /generated draft/i }),
+    ).toHaveTextContent(/requires human review before approval or publishing/i);
+
+    await user.click(
+      screen.getByRole("button", { name: /save draft for review/i }),
+    );
+
+    expect(onDraftUsageSubmit).toHaveBeenCalledWith({
+      answerId: answer.id,
+      answerState: answer.state,
+      citedSources: [
+        {
+          accessState: "authorized",
+          sourceId: "src-cardiomax-approved-assets",
+          sourceSystem: "Asset",
+        },
+        {
+          accessState: "authorized",
+          sourceId: "src-cardiomax-approved-message-house",
+          sourceSystem: "Asset",
+        },
+        {
+          accessState: "authorized",
+          sourceId: "src-cardiomax-approved-clinical-claims",
+          sourceSystem: "Asset",
+        },
+        {
+          accessState: "authorized",
+          sourceId: "src-cardiomax-value-proposition-brief",
+          sourceSystem: "SharePoint",
+        },
+      ],
+      draftId: answer.generatedDraft!.id,
+      omittedTopics: answer.generatedDraft!.omittedTopics ?? [],
+      usageAction: "saved_for_review",
+    });
+    expect(screen.getByRole("status")).toHaveTextContent(
+      /draft saved for review/i,
+    );
+  });
+
   it("does not render feedback submission controls without a recorder", () => {
     const answer = buildPrototypeAnswer(
       "Who owns the deployment handoff?",
@@ -264,6 +322,27 @@ describe("SourceBackedAnswerCard", () => {
 
     expect(
       screen.queryByRole("button", { name: /submit answer feedback/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("does not render draft usage controls for generated drafts without an explicit review action", () => {
+    const answer = buildPrototypeAnswer(
+      "Who owns the deployment handoff?",
+      "CARDIOMAX Launch",
+    );
+
+    render(
+      <SourceBackedAnswerCard
+        answer={answer}
+        onDraftUsageSubmit={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByRole("region", { name: /generated draft/i }),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: /save draft for review/i }),
     ).not.toBeInTheDocument();
   });
 });

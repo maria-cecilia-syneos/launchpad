@@ -14,7 +14,10 @@ import { ArrowUp, MessageSquare, Sparkles } from "lucide-react";
 import {
   buildApprovedTrainingContentAnswer,
   buildPrototypeAnswer,
+  buildTrainingSummaryDraftAnswer,
   isApprovedTrainingContentQuestion,
+  isTrainingSummaryDraftQuestion,
+  type SourceBackedAnswer,
 } from "@/domain/answer";
 import {
   type AnswerFeedbackCategory,
@@ -22,7 +25,9 @@ import {
   type AnswerFeedbackRating,
   type AuditSourceReference,
   type AuditEventRecord,
+  type DraftUsageAction,
   buildAnswerAuditEvents,
+  buildDraftUsageAuditEvent,
   buildFeedbackSubmittedEvent,
   buildPrototypeFeedbackRecord,
 } from "@/domain/audit";
@@ -169,6 +174,38 @@ export function AgentChatShell({
     recordAuditEvents([event]);
     setStatusMessage(
       `Feedback received for ${launchName}. Preserved for answer quality review.`,
+    );
+  }
+
+  function handleDraftUsageSubmit({
+    answerId,
+    answerState,
+    citedSources,
+    draftId,
+    omittedTopics,
+    usageAction,
+  }: {
+    answerId: string;
+    answerState: SourceBackedAnswer["state"];
+    citedSources: AuditSourceReference[];
+    draftId: string;
+    omittedTopics: string[];
+    usageAction: DraftUsageAction;
+  }) {
+    recordAuditEvents([
+      buildDraftUsageAuditEvent({
+        actorId: session.user.name,
+        answerId,
+        answerState,
+        citedSources,
+        draftId,
+        launchId: session.launch.id,
+        omittedTopics,
+        usageAction,
+      }),
+    ]);
+    setStatusMessage(
+      `Draft saved for review for ${launchName}. Source lineage preserved for reviewer traceability.`,
     );
   }
 
@@ -320,6 +357,7 @@ export function AgentChatShell({
                 <div className="mt-3">
                   <SourceBackedAnswerCard
                     answer={message.answer}
+                    onDraftUsageSubmit={handleDraftUsageSubmit}
                     onFeedbackSubmit={handleFeedbackSubmit}
                   />
                 </div>
@@ -439,6 +477,14 @@ function buildAgentAnswer({
       question,
       role: session.user.role,
     });
+  }
+
+  if (isTrainingSummaryDraftQuestion(question, previousQuestion)) {
+    return buildTrainingSummaryDraftAnswer(
+      question,
+      launchName,
+      previousQuestion,
+    );
   }
 
   if (isApprovedTrainingContentQuestion(question, previousQuestion)) {
